@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CUSTOMER
+  VENDOR
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(CUSTOMER)
+  createdAt DateTime @default(now())
+
+  vendor Vendor?
+  orders Order[]
+}
+
+model Vendor {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  shopName  String
+  approved  Boolean  @default(false)
+  balance   Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+
+  user       User        @relation(fields: [userId], references: [id])
+  products   Product[]
+  orderItems OrderItem[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  vendorId    String
+  title       String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  stock       Int      @default(0)
+  image       String?
+  category    String
+  createdAt   DateTime @default(now())
+
+  vendor     Vendor      @relation(fields: [vendorId], references: [id])
+  orderItems OrderItem[]
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  customerId String
+  total      Decimal     @db.Decimal(10, 2)
+  status     OrderStatus @default(PENDING)
+  createdAt  DateTime    @default(now())
+
+  customer User        @relation(fields: [customerId], references: [id])
+  items    OrderItem[]
+}
+
+model OrderItem {
+  id            String  @id @default(cuid())
+  orderId       String
+  productId     String
+  vendorId      String
+  price         Decimal @db.Decimal(10, 2)
+  qty           Int
+  commission    Decimal @db.Decimal(10, 2)
+  vendorEarning Decimal @db.Decimal(10, 2)
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  vendor  Vendor  @relation(fields: [vendorId], references: [id])
+}
+
+model Setting {
+  id             Int   @id @default(1)
+  commissionRate Float @default(10)
+}
