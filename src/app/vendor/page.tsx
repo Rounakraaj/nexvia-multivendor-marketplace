@@ -1,4 +1,5 @@
-﻿import { requireRole } from "@/lib/guard";
+﻿import Link from "next/link";
+import { requireRole } from "@/lib/guard";
 import { db } from "@/lib/db";
 import SignOutButton from "@/components/SignOutButton";
 
@@ -15,11 +16,18 @@ export default async function VendorHome() {
         </div>
         <SignOutButton />
       </div>
-      <div className={`mt-8 rounded-2xl p-6 ${vendor?.approved ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
-        {vendor?.approved
-          ? "Your shop is approved. You can start adding products."
-          : "Your shop is waiting for admin approval. You can add products once approved."}
-      </div>
+      {vendor?.approved ? (
+        <div className="mt-8 flex items-center justify-between rounded-2xl bg-emerald-50 p-6 text-emerald-800">
+          <span>Your shop is approved. You can manage your products.</span>
+          <Link href="/vendor/products" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+            Manage products
+          </Link>
+        </div>
+      ) : (
+        <div className="mt-8 rounded-2xl bg-amber-50 p-6 text-amber-800">
+          Your shop is waiting for admin approval. You can add products once approved.
+        </div>
+      )}
     </main>
   );
 }
