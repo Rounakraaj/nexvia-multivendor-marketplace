@@ -43,3 +43,6 @@ next-env.d.ts
 .claude
 .cursor
 .devin
+
+# Prisma generated client
+/src/generated
