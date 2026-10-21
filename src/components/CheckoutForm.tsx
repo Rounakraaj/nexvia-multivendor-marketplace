@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearCart, useCart } from "@/lib/cart";
@@ -10,18 +10,42 @@ import { showToast } from "@/lib/toast";
 
 export default function CheckoutForm({ customerName }: { customerName: string }) {
   const router = useRouter();
-  const { items, total } = useCart();
+  const { items, total, ready } = useCart();
   const [state, action, pending] = useActionState<CheckoutState, FormData>(placeOrder, {});
+  const [idempotencyKey, setIdempotencyKey] = useState("");
+  const cartSignature = items.map((item) => `${item.id}:${item.qty}`).sort().join("|");
+
+  useEffect(() => {
+    if (!ready || !cartSignature) return;
+    const storageKey = "nexvia-checkout-idempotency";
+    let key = "";
+    try {
+      const previous = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as { signature?: string; key?: string } | null;
+      if (previous?.signature === cartSignature && previous.key) {
+        key = previous.key;
+      } else {
+        key = crypto.randomUUID();
+        sessionStorage.setItem(storageKey, JSON.stringify({ signature: cartSignature, key }));
+      }
+    } catch {
+      key = crypto.randomUUID();
+    }
+    const timer = window.setTimeout(() => setIdempotencyKey(key), 0);
+    return () => window.clearTimeout(timer);
+  }, [cartSignature, ready]);
 
   useEffect(() => {
     if (!state.orderId) return;
-    clearCart();
+    try { sessionStorage.removeItem("nexvia-checkout-idempotency"); } catch { /* Session storage is optional. */ }
+    void clearCart();
     router.push(`/orders/${state.orderId}`);
   }, [router, state.orderId]);
 
   useEffect(() => {
     if (state.error) showToast(state.error, "error");
   }, [state.error]);
+
+  if (!ready) return <div className="panel p-10 text-center text-sm text-[var(--muted)]" role="status">Loading your cart…</div>;
 
   if (items.length === 0) {
     return <div className="panel p-10 text-center">
@@ -35,6 +59,7 @@ export default function CheckoutForm({ customerName }: { customerName: string })
     <div className="panel space-y-5 p-5 sm:p-6">
       <h2 className="text-lg font-bold">Shipping details</h2>
       <input type="hidden" name="items" value={JSON.stringify(items.map(({ id, qty }) => ({ productId: id, qty })))} />
+      <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
       <div><label className="label" htmlFor="name">Recipient name</label><input className="field" id="name" name="name" required minLength={2} maxLength={100} defaultValue={customerName} autoComplete="name" /></div>
       <div><label className="label" htmlFor="phone">Phone</label><input className="field" id="phone" name="phone" type="tel" required minLength={8} maxLength={20} autoComplete="tel" placeholder="98765 43210" /></div>
       <div><label className="label" htmlFor="addressLine">Address line</label><textarea className="field" id="addressLine" name="addressLine" required minLength={5} maxLength={200} rows={3} autoComplete="street-address" /></div>
@@ -51,7 +76,7 @@ export default function CheckoutForm({ customerName }: { customerName: string })
       <p className="mt-4 flex justify-between font-bold"><span>Total</span><span className="nums">{formatPrice(total)}</span></p>
       <p className="mt-3 text-xs text-[var(--muted)]">Payment is simulated for this order. Prices and stock are checked again before it is placed.</p>
       {state.error && <p className="mt-4 rounded-lg border border-[var(--danger)] px-3 py-2 text-sm text-[var(--danger)]" role="alert">{state.error}</p>}
-      <button className="btn btn-primary mt-5 w-full" disabled={pending}>{pending ? "Placing order…" : "Pay and place order"}</button>
+      <button className="btn btn-primary mt-5 w-full" disabled={pending || !idempotencyKey}>{pending ? "Placing order…" : "Pay and place order"}</button>
     </aside>
   </form>;
 }

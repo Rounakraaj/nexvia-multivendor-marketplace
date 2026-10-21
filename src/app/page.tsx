@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { getProductCategories } from "@/lib/catalog";
 import { formatPrice } from "@/lib/format";
 import { searchProducts, type ProductSearchFilters } from "@/lib/search";
 import { recordZeroResultSearch } from "@/lib/mongo";
@@ -42,7 +42,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
   const sort = sortValues.includes(sp.sort as SortValue) ? sp.sort as SortValue : q ? "relevance" : "newest";
   const searching = Boolean(q || category || minPrice !== undefined || maxPrice !== undefined || inStock);
   const filters: ProductSearchFilters = { q, category, minPrice, maxPrice, inStock, sort, page };
-  const categories = await db.product.findMany({ where: { vendor: { approved: true } }, select: { category: true }, distinct: ["category"], orderBy: { category: "asc" } });
+  const categories = await getProductCategories();
   const results = searching ? await searchProducts(filters) : null;
   const products = results?.products ?? [];
   const total = results?.total ?? 0;
@@ -68,7 +68,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
         </form>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <Link href={href({ ...baseParams, q, category: undefined })} className={chip(!category)}>All categories</Link>
-          {categories.map((item) => <Link key={item.category} href={href({ ...baseParams, q, category: item.category })} className={chip(category === item.category)}>{item.category}</Link>)}
+          {categories.map((item) => <Link key={item} href={href({ ...baseParams, q, category: item })} className={chip(category === item)}>{item}</Link>)}
         </div>
         {!searching && <p className="mt-8 text-sm text-[var(--muted)]">Results appear after a search or category pick.</p>}
       </div>
@@ -79,6 +79,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
         {total > 1 && <nav aria-label="Sort products" className="flex flex-wrap rounded-[10px] border border-[var(--line)] p-1">{sorts.map(([value, label]) => <Link key={value} href={href({ ...baseParams, sort: value })} aria-current={sort === value ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-xs sm:text-sm ${sort === value ? "bg-[var(--surface-2)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>{label}</Link>)}</nav>}
       </div>
       {results?.source === "postgres" && process.env.ELASTICSEARCH_URL && <p className="mt-3 text-xs text-[var(--muted)]">Enhanced search is temporarily unavailable. Showing standard search results.</p>}
+      {results?.cacheAvailable === false && <p className="mt-2 text-xs text-[var(--muted)]">Redis is temporarily unavailable. Search is continuing without cached results.</p>}
       <form action="/" className="mt-5 flex flex-wrap items-end gap-3 rounded-xl border border-[var(--line)] p-4">
         {q && <input type="hidden" name="q" value={q} />}{category && <input type="hidden" name="category" value={category} />}
         <label className="text-left text-xs text-[var(--muted)]">Minimum price<input name="minPrice" type="number" min="0" step="0.01" defaultValue={sp.minPrice} className="field mt-1 w-36" /></label>

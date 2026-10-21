@@ -1,6 +1,8 @@
 import { Client, type estypes } from "@elastic/elasticsearch";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
+import { invalidateCatalogCache, isRedisConfigured, redisCommand } from "@/lib/redis";
+import { createHash } from "node:crypto";
 
 const indexName = process.env.ELASTICSEARCH_INDEX || "nexvia-products";
 const PAGE_SIZE = 20;
@@ -102,7 +104,8 @@ function toDocument(product: {
   };
 }
 
-export async function syncProductSearchDocument(productId: string) {
+export async function syncProductSearchDocument(productId: string, categoriesChanged = false) {
+  await invalidateCatalogCache(categoriesChanged);
   const client = searchClient();
   if (!client) return false;
   try {
@@ -122,6 +125,7 @@ export async function syncProductSearchDocument(productId: string) {
 }
 
 export async function syncVendorSearchDocuments(vendorId: string, approved: boolean) {
+  await invalidateCatalogCache(true);
   const client = searchClient();
   if (!client) return false;
   try {
@@ -184,7 +188,7 @@ function elasticSort(sort: ProductSearchFilters["sort"]): estypes.Sort {
   return [{ _score: { order: "desc" } }, { createdAt: { order: "desc" } }];
 }
 
-export async function searchProducts(filters: ProductSearchFilters) {
+async function searchProductsUncached(filters: ProductSearchFilters) {
   const client = searchClient();
   if (!client) return searchPostgres(filters);
   try {
@@ -217,6 +221,36 @@ export async function searchProducts(filters: ProductSearchFilters) {
     console.warn("Elasticsearch search failed; using PostgreSQL search.", error);
     return searchPostgres(filters);
   }
+}
+
+export async function searchProducts(filters: ProductSearchFilters) {
+  const rawVersion = await redisCommand((client) => client.get("cache:search-version"));
+  const cacheAvailable = !isRedisConfigured() || rawVersion !== undefined;
+  const version = rawVersion ?? "0";
+  const cacheKey = `cache:search:${version}:${createHash("sha256").update(JSON.stringify(filters)).digest("hex")}`;
+  const cached = cacheAvailable ? await redisCommand((client) => client.get(cacheKey)) : undefined;
+  if (cached) {
+    try {
+      const value = JSON.parse(cached) as { ids: string[]; total: number; page: number; pageSize: number; source: "postgres" | "elasticsearch" };
+      const products = value.ids.length ? await db.product.findMany({ where: { id: { in: value.ids }, vendor: { approved: true } }, include: { vendor: { select: { shopName: true } } } }) : [];
+      const byId = new Map(products.map((product) => [product.id, product]));
+      const ordered = value.ids.flatMap((id) => byId.has(id) ? [byId.get(id)!] : []);
+      if (ordered.length === value.ids.length) return { products: ordered, total: value.total, page: value.page, pageSize: value.pageSize, source: value.source, cacheAvailable };
+    } catch {
+      // A malformed cache entry is a cache miss; PostgreSQL and Elasticsearch remain authoritative.
+    }
+  }
+
+  const result = await searchProductsUncached(filters);
+  const cacheData = {
+    ids: result.products.map((product) => product.id),
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    source: result.source,
+  };
+  if (cacheAvailable) await redisCommand((client) => client.set(cacheKey, JSON.stringify(cacheData), { EX: 45 }));
+  return { ...result, cacheAvailable };
 }
 
 export async function suggestProducts(query: string) {
@@ -270,6 +304,7 @@ export async function reindexAllProducts() {
       cursor = products[products.length - 1].id;
     }
     await client.indices.refresh({ index: indexName });
+    await invalidateCatalogCache();
     return count;
   } catch (error) {
     indexReady = undefined;

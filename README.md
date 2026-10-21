@@ -10,6 +10,7 @@ A multi-vendor marketplace built with Next.js 16, React 19, TypeScript, Tailwind
 - Optional S3-compatible product image uploads. Uploads use a short-lived presigned form, enforce JPEG/PNG/WebP and a 2 MB limit, and store object keys on `Product.image`.
 - Optional typo-tolerant Elasticsearch search, filters, sorting, paging, and header autocomplete; PostgreSQL search remains the fallback.
 - Optional MongoDB collection for zero-result search analytics.
+- Optional Redis carts for signed-in customers, short-lived category/search caches, rate limits, and request idempotency; guest carts stay in local storage.
 - S3 outages disable image upload and image delivery without preventing text-only product management or taking down the rest of the site.
 
 ## Architecture
@@ -23,6 +24,7 @@ flowchart LR
   Browser -->|direct image upload| S3
   Next -->|primary search index| ES[(Elasticsearch)]
   Next -->|zero-result events| Mongo[(MongoDB analytics)]
+  Next -->|carts, short caches, rate limits| Redis[(Redis)]
 ```
 
 PostgreSQL remains the source of truth for products, stock, orders, and the ledger. Product image keys use `products/{vendorId}/{randomId}.{jpg|png|webp}`. Uploads are authorized against the current approved vendor. On save, the server checks object size, declared content type, and file signature. Replacing or deleting a product attempts to delete its prior object.
@@ -31,7 +33,7 @@ PostgreSQL remains the source of truth for products, stock, orders, and the ledg
 
 | Store | Data |
 | --- | --- |
-| PostgreSQL | Users and roles; vendors and balances; products, stock, and rating aggregates; orders, order items, shipping data, and commission ledger values; marketplace settings |
+| PostgreSQL | Users and roles; vendors and balances; products, stock, and rating aggregates; orders with per-customer idempotency keys, order items, shipping data, and commission ledger values; marketplace settings |
 | Elasticsearch | Rebuildable search documents for approved products, including title suggestions, category, price, stock, vendor, rating, and creation time |
 | MongoDB | Optional zero-result search events only in this phase; later review and coupon documents are planned |
 | S3-compatible object storage | Private product image objects; PostgreSQL stores the object key |
@@ -54,6 +56,7 @@ Elasticsearch is derived data and can be reconstructed with `npm run reindex`. P
 | `POST /api/vendor/products/image-upload` | Create a scoped, short-lived S3 upload form |
 | `GET /api/product-images?key=…` | Redirect to a short-lived URL for an approved product image |
 | `GET /api/search/suggest?q=…` | Header autocomplete suggestions |
+| `/api/cart` | Authenticated cart sync; Redis-backed when available, local-storage fallback otherwise |
 
 ## Local setup
 
@@ -67,7 +70,7 @@ Image storage is optional. Without the `S3_*` variables, vendors can create and 
 
 ### Local optional services
 
-Start Elasticsearch, Redis, and MongoDB for local development with `docker compose up -d`. The local Elasticsearch container runs without authentication and must not be exposed publicly. Copy the local service values from `.env.example`; replace demo MongoDB credentials if the ports are accessible outside your machine. Elasticsearch is the preferred search index when configured. On connection errors or when `ELASTICSEARCH_URL` is blank, the app uses PostgreSQL search. MongoDB is only for analytics and can be left blank without affecting search or checkout.
+Start Elasticsearch, Redis, and MongoDB for local development with `docker compose up -d`. The local Elasticsearch and Redis containers run without authentication and must not be exposed publicly. Copy the local service values from `.env.example`; replace demo MongoDB credentials if the ports are accessible outside your machine. Elasticsearch is the preferred search index when configured. On connection errors or when `ELASTICSEARCH_URL` is blank, the app uses PostgreSQL search. MongoDB is only for analytics and can be left blank without affecting search or checkout. Without Redis, signed-in carts use the same local-storage fallback as guest carts, and rate limits use per-process counters.
 
 Run `npm run reindex` after starting Elasticsearch or after changing the index mapping. This rebuilds the product index from approved PostgreSQL products. Product create, edit, delete, and vendor approval changes sync records incrementally when Elasticsearch is available.
 
@@ -94,8 +97,11 @@ Cloudflare R2 is one S3-compatible hosted option. Its current standard-storage f
 | `ELASTICSEARCH_USERNAME`, `ELASTICSEARCH_PASSWORD` | No | Basic auth when API key auth is not used |
 | `MONGODB_URI` | No | MongoDB connection string for analytics |
 | `MONGODB_DATABASE` | No | Mongo database name; defaults to `nexvia` |
+| `REDIS_URL` | No | Redis connection URL; empty enables local cart and cache fallbacks |
 
 Never commit `.env` files or production credentials.
+
+Session lookups are not cached. Roles and account state should reflect the current Auth.js JWT on each request; a Redis session cache could make account changes and security revocation take effect late. Search cache values expire after 45 seconds and use a version key that mutations increment. Category cache values expire after 5 minutes and are deleted when products or vendor approvals change.
 
 ## Verification
 
@@ -103,6 +109,7 @@ Never commit `.env` files or production credentials.
 - `npm run lint` — ESLint check.
 - `npm run build` — production build; database-backed routes need request-time rendering and a reachable PostgreSQL database at runtime.
 - `npm run verify` — checks order totals and vendor balances against the PostgreSQL ledger; requires a reachable configured database.
+- `npm run test:idempotency` — verifies the database unique constraint inside a transaction that rolls back its temporary test order.
 - `npx tsx scripts/test-commission.ts` — commission rounding checks.
 - `npm run reindex` — rebuild Elasticsearch from approved PostgreSQL products; prints `SKIP` if Elasticsearch is not configured.
 

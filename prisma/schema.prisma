@@ -71,11 +71,13 @@ model Order {
   shippingName    String?
   shippingPhone   String?
   shippingAddress String?
+  idempotencyKey  String?
   createdAt       DateTime    @default(now())
 
   customer User        @relation(fields: [customerId], references: [id])
   items    OrderItem[]
 
+  @@unique([customerId, idempotencyKey])
   @@index([customerId, createdAt])
 }
 

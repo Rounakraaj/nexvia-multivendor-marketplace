@@ -6,7 +6,9 @@ import { formatPrice } from "@/lib/format";
 import SplitBar from "@/components/SplitBar";
 
 export default function CartView() {
-  const { items, total } = useCart();
+  const { items, total, ready } = useCart();
+
+  if (!ready) return <div className="panel p-10 text-center text-sm text-[var(--muted)]" role="status">Loading your cart…</div>;
 
   if (items.length === 0) {
     return (
@@ -29,16 +31,16 @@ export default function CartView() {
               <div className="min-w-0">
                 <Link href={`/products/${i.id}`} className="font-semibold hover:underline">{i.title}</Link>
                 <p className="text-sm text-[var(--muted)]">{i.shop}</p>
-                <button onClick={() => removeItem(i.id)} className="tap-target mt-1 inline-flex items-center text-sm font-semibold underline underline-offset-4">
+                <button onClick={() => void removeItem(i.id)} className="tap-target mt-1 inline-flex items-center text-sm font-semibold underline underline-offset-4">
                   Remove
                 </button>
               </div>
               <div className="flex items-center gap-5">
                 <div className="flex items-center rounded-[10px] border border-[var(--line)]">
-                  <button onClick={() => setQty(i.id, i.qty - 1)} aria-label="Decrease quantity" className="h-11 w-11 text-lg hover:bg-[var(--surface-2)]">-</button>
+                  <button onClick={() => void setQty(i.id, i.qty - 1)} aria-label="Decrease quantity" className="h-11 w-11 text-lg hover:bg-[var(--surface-2)]">-</button>
                   <span className="w-8 text-center text-sm font-semibold">{i.qty}</span>
                   <button
-                    onClick={() => setQty(i.id, i.qty + 1)}
+                    onClick={() => void setQty(i.id, i.qty + 1)}
                     disabled={i.qty >= i.stock}
                     aria-label="Increase quantity"
                     className="h-11 w-11 text-lg hover:bg-[var(--surface-2)] disabled:opacity-30"
@@ -51,7 +53,7 @@ export default function CartView() {
             </li>
           ))}
         </ul>
-        <button onClick={clearCart} className="tap-target mt-4 inline-flex items-center text-sm text-[var(--muted)] underline underline-offset-4">
+        <button onClick={() => void clearCart()} className="tap-target mt-4 inline-flex items-center text-sm text-[var(--muted)] underline underline-offset-4">
           Clear cart
         </button>
       </div>

@@ -1,10 +1,13 @@
 "use server";
 
 import { z } from "zod";
+import { headers } from "next/headers";
 import { requireRole } from "@/lib/guard";
 import { db } from "@/lib/db";
 import { paiseToDecimal, splitCommission, toPaise } from "@/lib/money";
 import { syncProductSearchDocument } from "@/lib/search";
+import { clientIp, rateLimit } from "@/lib/redis";
+import { clearSignedInCart, readSignedInCart } from "@/lib/cart-server";
 
 const cartSchema = z.array(z.object({
   productId: z.string().min(1),
@@ -18,6 +21,7 @@ const addressSchema = z.object({
   city: z.string().trim().min(2, "Enter a city.").max(100),
   pinCode: z.string().trim().regex(/^\d{6}$/, "Enter a valid 6-digit PIN code."),
 });
+const idempotencySchema = z.string().uuid();
 
 export type CheckoutState = { error?: string; orderId?: string };
 
@@ -25,11 +29,30 @@ class OrderError extends Error {}
 
 export async function placeOrder(_previous: CheckoutState, formData: FormData): Promise<CheckoutState> {
   const session = await requireRole(["CUSTOMER"]);
+  const idempotency = idempotencySchema.safeParse(formData.get("idempotencyKey"));
+  if (!idempotency.success) return { error: "Refresh checkout and try again." };
+  const idempotencyKey = idempotency.data;
+  const existingOrder = await db.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true } });
+  if (existingOrder) return { orderId: existingOrder.id };
+
+  const requestHeaders = await headers();
+  const ip = clientIp(requestHeaders.get("x-forwarded-for"));
+  const [ipLimit, userLimit] = await Promise.all([
+    rateLimit([`checkout:ip:${ip}`], 20, 60),
+    rateLimit([`checkout:user:${session.user.id}`], 8, 60),
+  ]);
+  if (!ipLimit.allowed || !userLimit.allowed) return { error: "Too many checkout attempts. Wait a moment and try again." };
+
   let rawCart: unknown;
-  try {
-    rawCart = JSON.parse(String(formData.get("items") ?? ""));
-  } catch {
-    return { error: "Your cart could not be read. Reload the page and try again." };
+  const serverCart = await readSignedInCart(session.user.id);
+  if (serverCart.available) {
+    rawCart = serverCart.items.map(({ id, qty }) => ({ productId: id, qty }));
+  } else {
+    try {
+      rawCart = JSON.parse(String(formData.get("items") ?? ""));
+    } catch {
+      return { error: "Your cart could not be read. Reload the page and try again." };
+    }
   }
   const cartResult = cartSchema.safeParse(rawCart);
   if (!cartResult.success) return { error: "Your cart is empty or contains invalid quantities. Review it and try again." };
@@ -53,6 +76,8 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
 
     // Integrate Razorpay or Stripe test-mode authorization here before creating the PAID order.
     const orderId = await db.$transaction(async (tx) => {
+      const duplicate = await tx.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true } });
+      if (duplicate) return duplicate.id;
       const products = await tx.product.findMany({
         where: { id: { in: lines.map((line) => line.productId) } },
         include: { vendor: { select: { id: true, shopName: true, approved: true } } },
@@ -96,6 +121,7 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
           shippingName: addressResult.data.name,
           shippingPhone: addressResult.data.phone,
           shippingAddress: `${addressResult.data.addressLine}, ${addressResult.data.city}, ${addressResult.data.pinCode}`,
+          idempotencyKey,
           items: {
             create: pricedLines.map((line) => ({
               productId: line.productId,
@@ -118,11 +144,19 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
       return order.id;
     });
 
+    await clearSignedInCart(session.user.id);
     await Promise.all(lines.map((line) => syncProductSearchDocument(line.productId)));
 
     return { orderId };
   } catch (error) {
     if (error instanceof OrderError) return { error: error.message };
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+      const duplicate = await db.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true } });
+      if (duplicate) {
+        await clearSignedInCart(session.user.id);
+        return { orderId: duplicate.id };
+      }
+    }
     return { error: "We could not place your order. Please try again." };
   }
 }

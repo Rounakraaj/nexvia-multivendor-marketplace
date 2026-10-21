@@ -14,7 +14,7 @@ type Props = {
 };
 
 export default function AddToCartButton(props: Props) {
-  const { items } = useCart();
+  const { items, ready } = useCart();
   const [added, setAdded] = useState(false);
 
   const inCart = items.find((i) => i.id === props.id)?.qty ?? 0;
@@ -22,15 +22,16 @@ export default function AddToCartButton(props: Props) {
   const maxed = inCart >= props.stock;
 
   function onClick() {
-    addItem(props, 1);
-    setAdded(true);
-    showToast("Added to cart");
-    setTimeout(() => setAdded(false), 1500);
+    void addItem(props, 1).then(() => {
+      setAdded(true);
+      showToast("Added to cart");
+      setTimeout(() => setAdded(false), 1500);
+    });
   }
 
   return (
-    <button onClick={onClick} disabled={soldOut || maxed} className="btn btn-primary mt-8 w-full py-4">
-      {soldOut ? "Out of stock" : maxed ? "Maximum quantity in cart" : added ? "Added to cart" : "Add to cart"}
+    <button onClick={onClick} disabled={!ready || soldOut || maxed} className="btn btn-primary mt-8 w-full py-4">
+      {!ready ? "Loading cart…" : soldOut ? "Out of stock" : maxed ? "Maximum quantity in cart" : added ? "Added to cart" : "Add to cart"}
     </button>
   );
 }

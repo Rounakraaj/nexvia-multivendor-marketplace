@@ -45,7 +45,7 @@ export async function createProduct(formData: FormData) {
     await assertProductImageObject(data.image, vendor.id);
   }
   const product = await db.product.create({ data: { ...data, description: data.description ?? null, image: data.image ?? null, vendorId: vendor.id }, select: { id: true } });
-  await syncProductSearchDocument(product.id);
+  await syncProductSearchDocument(product.id, true);
   revalidatePath("/vendor/products");
   redirect("/vendor/products");
 }
@@ -53,14 +53,14 @@ export async function createProduct(formData: FormData) {
 export async function updateProduct(id: string, formData: FormData) {
   const vendor = await requireApprovedVendor();
   const data = parseProduct(formData);
-  const current = await db.product.findFirst({ where: { id, vendorId: vendor.id }, select: { image: true } });
+  const current = await db.product.findFirst({ where: { id, vendorId: vendor.id }, select: { image: true, category: true } });
   if (!current) throw new Error("This product does not belong to your shop.");
   if (data.image && data.image !== current.image) {
     if (!isProductImageKeyForVendor(data.image, vendor.id)) throw new Error("Choose an image uploaded to your shop.");
     await assertProductImageObject(data.image, vendor.id);
   }
   await db.product.update({ where: { id }, data: { ...data, description: data.description ?? null, image: data.image ?? null } });
-  await syncProductSearchDocument(id);
+  await syncProductSearchDocument(id, current.category !== data.category);
   if (current.image !== data.image) await removeImageBestEffort(current.image);
   revalidatePath("/vendor/products");
   redirect("/vendor/products");
@@ -73,7 +73,7 @@ export async function deleteProduct(formData: FormData) {
   const product = await db.product.findFirst({ where: { id: id.data, vendorId: vendor.id }, select: { id: true, image: true } });
   if (!product) return;
   await db.product.delete({ where: { id: product.id } });
-  await syncProductSearchDocument(product.id);
+  await syncProductSearchDocument(product.id, true);
   await removeImageBestEffort(product.image);
   revalidatePath("/vendor/products");
 }

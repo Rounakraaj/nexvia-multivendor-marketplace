@@ -34,7 +34,16 @@ async function main() {
     }
   }
 
-  console.log(failures === 0 ? `PASS: ${orders.length} orders checked` : `${failures} problems found`);
+  const duplicateIdempotencyKeys = await db.$queryRaw<{ customerId: string; idempotencyKey: string; count: bigint }[]>`
+    SELECT "customerId", "idempotencyKey", COUNT(*) AS count
+    FROM "Order"
+    WHERE "idempotencyKey" IS NOT NULL
+    GROUP BY "customerId", "idempotencyKey"
+    HAVING COUNT(*) > 1
+  `;
+  for (const duplicate of duplicateIdempotencyKeys) fail(`Customer ${duplicate.customerId}: idempotency key ${duplicate.idempotencyKey} occurs more than once`);
+
+  console.log(failures === 0 ? `PASS: ${orders.length} orders and idempotency keys checked` : `${failures} problems found`);
   process.exit(failures === 0 ? 0 : 1);
 }
 
