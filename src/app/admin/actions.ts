@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/guard";
 import { db } from "@/lib/db";
 import { paiseToDecimal, toPaise } from "@/lib/money";
+import { syncProductSearchDocument, syncVendorSearchDocuments } from "@/lib/search";
 
 const approvalSchema = z.object({ vendorId: z.string().min(1).max(40), approved: z.enum(["true", "false"]) });
 const commissionSchema = z.object({ rate: z.coerce.number().min(0).max(50).refine((value) => Number.isInteger(value * 2), "Use increments of 0.5.") });
@@ -19,6 +20,7 @@ export async function setVendorApproval(_previous: AdminActionState, formData: F
   try {
     const updated = await db.vendor.updateMany({ where: { id: parsed.data.vendorId }, data: { approved: parsed.data.approved === "true" } });
     if (updated.count !== 1) return { error: "This vendor could not be found. Refresh and try again." };
+    await syncVendorSearchDocuments(parsed.data.vendorId, parsed.data.approved === "true");
     revalidatePath("/admin");
     return { success: parsed.data.approved === "true" ? "Vendor approved." : "Vendor suspended." };
   } catch {
@@ -45,6 +47,7 @@ export async function updateOrderStatus(_previous: AdminActionState, formData: F
       const result = await db.order.updateMany({ where: { id: parsed.data.orderId, status: { in: [...allowed] } }, data: { status: parsed.data.status } });
       if (result.count !== 1) return { error: `This order cannot be marked ${parsed.data.status.toLowerCase()} from its current status.` };
     } else {
+      let changedProductIds: string[] = [];
       await db.$transaction(async (tx) => {
         const order = await tx.order.findUnique({ where: { id: parsed.data.orderId }, include: { items: true } });
         if (!order) throw new Error("Order not found.");
@@ -58,9 +61,11 @@ export async function updateOrderStatus(_previous: AdminActionState, formData: F
           stockByProduct.set(item.productId, (stockByProduct.get(item.productId) ?? 0) + item.qty);
           balanceByVendor.set(item.vendorId, (balanceByVendor.get(item.vendorId) ?? 0) + toPaise(item.vendorEarning.toString()));
         }
+        changedProductIds = [...stockByProduct.keys()];
         for (const [productId, qty] of stockByProduct) await tx.product.update({ where: { id: productId }, data: { stock: { increment: qty } } });
         for (const [vendorId, earning] of balanceByVendor) await tx.vendor.update({ where: { id: vendorId }, data: { balance: { decrement: paiseToDecimal(earning) } } });
       });
+      await Promise.all(changedProductIds.map((productId) => syncProductSearchDocument(productId)));
     }
     revalidatePath("/admin/orders");
     revalidatePath("/admin/commission");

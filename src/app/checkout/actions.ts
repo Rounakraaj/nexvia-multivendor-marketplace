@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/guard";
 import { db } from "@/lib/db";
 import { paiseToDecimal, splitCommission, toPaise } from "@/lib/money";
+import { syncProductSearchDocument } from "@/lib/search";
 
 const cartSchema = z.array(z.object({
   productId: z.string().min(1),
@@ -116,6 +117,8 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
       }
       return order.id;
     });
+
+    await Promise.all(lines.map((line) => syncProductSearchDocument(line.productId)));
 
     return { orderId };
   } catch (error) {

@@ -8,16 +8,19 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
-    "verify": "tsx scripts/verify-ledger.ts"
+    "verify": "tsx scripts/verify-ledger.ts",
+    "reindex": "tsx scripts/reindex.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1154.0",
     "@aws-sdk/s3-presigned-post": "^3.1154.0",
     "@aws-sdk/s3-request-presigner": "^3.1154.0",
+    "@elastic/elasticsearch": "^9.5.1",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^18.0.8",
+    "mongodb": "^7.7.0",
     "next": "16.4.2",
     "next-auth": "^4.24.15",
     "pg": "^8.23.1",

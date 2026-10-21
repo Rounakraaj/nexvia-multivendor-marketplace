@@ -47,15 +47,17 @@ model Vendor {
 }
 
 model Product {
-  id          String   @id @default(cuid())
-  vendorId    String
-  title       String
-  description String?
-  price       Decimal  @db.Decimal(10, 2)
-  stock       Int      @default(0)
-  image       String?
-  category    String
-  createdAt   DateTime @default(now())
+  id            String   @id @default(cuid())
+  vendorId      String
+  title         String
+  description   String?
+  price         Decimal  @db.Decimal(10, 2)
+  stock         Int      @default(0)
+  image         String?
+  category      String
+  averageRating Float    @default(0)
+  ratingCount   Int      @default(0)
+  createdAt     DateTime @default(now())
 
   vendor     Vendor      @relation(fields: [vendorId], references: [id])
   orderItems OrderItem[]

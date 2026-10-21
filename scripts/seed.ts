@@ -2,6 +2,7 @@
 import bcrypt from "bcryptjs";
 import { db } from "../src/lib/db";
 import { paiseToDecimal, splitCommission, toPaise } from "../src/lib/money";
+import { reindexAllProducts } from "../src/lib/search";
 
 type P = [title: string, category: string, price: number, stock: number, description: string];
 
@@ -114,6 +115,13 @@ async function main() {
       await tx.vendor.update({ where: { id: vendor.id }, data: { balance: { increment: paiseToDecimal(split.vendorEarningPaise) } } });
     });
     console.log("Seeded demo order:", v.shop);
+  }
+
+  try {
+    const indexed = await reindexAllProducts();
+    if (indexed !== false) console.log(`Indexed ${indexed} approved products.`);
+  } catch {
+    console.warn("Elasticsearch is unavailable; products were seeded in PostgreSQL only. Run npm run reindex when it is available.");
   }
 
   process.exit(0);
