@@ -9,6 +9,9 @@ import { syncProductSearchDocument } from "@/lib/search";
 import { clientIp, rateLimit } from "@/lib/redis";
 import { clearSignedInCart, readSignedInCart } from "@/lib/cart-server";
 import { createGatewayOrder, markPaymentFailed, paymentMode, publicRazorpayKey, type PaymentMode } from "@/lib/payments";
+import { allocateDiscountPaise } from "@/lib/coupon-math";
+import { bindCouponReservation, finishCouponReservation, reserveCoupon, type ReservedCoupon } from "@/lib/marketplace-data";
+import { recordActivity } from "@/lib/mongo";
 
 const cartSchema = z.array(z.object({
   productId: z.string().min(1),
@@ -76,12 +79,31 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
   for (const line of cartResult.data) quantities.set(line.productId, (quantities.get(line.productId) ?? 0) + line.qty);
   const lines = [...quantities].map(([productId, qty]) => ({ productId, qty }));
 
+  let couponReservation: ReservedCoupon | null = null;
+  let couponSubtotalPaise: number | null = null;
   try {
     const mode: PaymentMode = paymentMode();
     if (mode === "razorpay" && !publicRazorpayKey()) return { error: "Razorpay is selected but its test credentials are not configured." };
     const setting = await db.setting.upsert({ where: { id: 1 }, update: {}, create: { id: 1, commissionRate: 10 } });
     const rate = setting.commissionRate;
     if (rate < 0 || rate > 50 || !Number.isInteger(rate * 2)) return { error: "The marketplace commission setting is invalid. Please contact support." };
+    const couponCode = String(formData.get("couponCode") ?? "").trim().toUpperCase();
+    if (couponCode) {
+      const products = await db.product.findMany({ where: { id: { in: lines.map((line) => line.productId) }, vendor: { approved: true } }, select: { id: true, price: true, vendorId: true } });
+      const byId = new Map(products.map((product) => [product.id, product]));
+      let subtotalPaise = 0;
+      const vendorSubtotals = new Map<string, number>();
+      for (const line of lines) {
+        const product = byId.get(line.productId);
+        if (!product || !Number.isSafeInteger(line.qty) || line.qty <= 0) return { error: "Your cart changed. Review its items and try again." };
+        const lineTotalPaise = toPaise(product.price.toString()) * line.qty;
+        if (!Number.isSafeInteger(lineTotalPaise) || lineTotalPaise > 999_999_999_999) return { error: "The cart total is outside the supported range." };
+        subtotalPaise += lineTotalPaise;
+        vendorSubtotals.set(product.vendorId, (vendorSubtotals.get(product.vendorId) ?? 0) + lineTotalPaise);
+      }
+      couponSubtotalPaise = subtotalPaise;
+      couponReservation = await reserveCoupon({ code: couponCode, reservationKey: `${session.user.id}:${idempotencyKey}`, customerId: session.user.id, subtotalPaise, vendorSubtotals });
+    }
 
     const created = await db.$transaction(async (tx) => {
       const duplicate = await tx.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true } });
@@ -107,8 +129,22 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
         const split = splitCommission(lineTotalPaise, rate);
         return { ...line, product, unitPaise, lineTotalPaise, ...split };
       });
-      const totalPaise = pricedLines.reduce((total, line) => total + line.lineTotalPaise, 0);
-      if (!Number.isSafeInteger(totalPaise) || totalPaise > 999_999_999_999) throw new OrderError("The order total is outside the supported range.");
+      const subtotalPaise = pricedLines.reduce((total, line) => total + line.lineTotalPaise, 0);
+      const eligibleLines = couponReservation ? pricedLines.filter((line) => couponReservation!.funding === "PLATFORM" || line.product.vendorId === couponReservation!.vendorId) : [];
+      if (couponReservation?.funding === "VENDOR" && couponReservation.discountPaise > eligibleLines.reduce((sum, line) => sum + line.vendorEarningPaise, 0)) throw new OrderError("This vendor coupon exceeds the sponsor shop's available earnings.");
+      const allocations = couponReservation ? allocateDiscountPaise(couponReservation.discountPaise, eligibleLines.map((line) => ({ id: line.productId, totalPaise: couponReservation!.funding === "VENDOR" ? line.vendorEarningPaise : line.lineTotalPaise }))) : new Map<string, number>();
+      const discountedLines = pricedLines.map((line) => {
+        const discountPaise = allocations.get(line.productId) ?? 0;
+        const vendorDiscountPaise = couponReservation?.funding === "VENDOR" ? discountPaise : 0;
+        const vendorEarningPaise = line.vendorEarningPaise - vendorDiscountPaise;
+        if (vendorEarningPaise < 0) throw new OrderError("This vendor coupon is larger than the seller earnings for an eligible item.");
+        return { ...line, discountPaise, vendorDiscountPaise, vendorEarningPaise };
+      });
+      if (couponReservation && couponReservation.funding === "VENDOR" && allocations.size !== eligibleLines.length) throw new OrderError("The vendor coupon could not be allocated to the eligible products.");
+      const discountPaise = couponReservation?.discountPaise ?? 0;
+      if (couponReservation && subtotalPaise !== couponSubtotalPaise) throw new OrderError("Your cart prices changed. Refresh and apply the coupon again.");
+      const totalPaise = subtotalPaise - discountPaise;
+      if (!Number.isSafeInteger(totalPaise) || totalPaise < 1 || totalPaise > 999_999_999_999) throw new OrderError("The order total is outside the supported range.");
 
       for (const line of pricedLines) {
         const updated = await tx.product.updateMany({
@@ -125,19 +161,26 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
         data: {
           customerId: session.user.id,
           total: paiseToDecimal(totalPaise),
+          subtotal: paiseToDecimal(subtotalPaise),
+          discountTotal: paiseToDecimal(discountPaise),
+          couponCode: couponReservation?.code ?? null,
+          couponFunding: couponReservation?.funding ?? null,
+          couponReservationKey: couponReservation?.reservationKey ?? null,
           status: mode === "simulated" ? "PAID" : "PENDING",
           shippingName: addressResult.data.name,
           shippingPhone: addressResult.data.phone,
           shippingAddress: `${addressResult.data.addressLine}, ${addressResult.data.city}, ${addressResult.data.pinCode}`,
           idempotencyKey,
           items: {
-            create: pricedLines.map((line) => ({
+            create: discountedLines.map((line) => ({
               productId: line.productId,
               vendorId: line.product.vendorId,
               price: paiseToDecimal(line.unitPaise),
               qty: line.qty,
               commission: paiseToDecimal(line.commissionPaise),
               vendorEarning: paiseToDecimal(line.vendorEarningPaise),
+              discount: paiseToDecimal(line.discountPaise),
+              vendorDiscount: paiseToDecimal(line.vendorDiscountPaise),
             })),
           },
           statusHistory: { create: { status: mode === "simulated" ? "PAID" : "PENDING", note: mode === "simulated" ? "Payment confirmed." : "Awaiting payment confirmation." } },
@@ -148,7 +191,7 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
 
       if (mode === "simulated") {
         const earningsByVendor = new Map<string, number>();
-        for (const line of pricedLines) earningsByVendor.set(line.product.vendorId, (earningsByVendor.get(line.product.vendorId) ?? 0) + line.vendorEarningPaise);
+        for (const line of discountedLines) earningsByVendor.set(line.product.vendorId, (earningsByVendor.get(line.product.vendorId) ?? 0) + line.vendorEarningPaise);
         for (const [vendorId, earningPaise] of earningsByVendor) {
           await tx.vendor.update({ where: { id: vendorId }, data: { balance: { increment: paiseToDecimal(earningPaise) } } });
         }
@@ -157,20 +200,28 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
     });
 
     await Promise.all(lines.map((line) => syncProductSearchDocument(line.productId)));
+    if (couponReservation) await bindCouponReservation(couponReservation.reservationKey, created.id);
     if (!created.created) {
       const prior = await db.order.findUnique({ where: { id: created.id }, include: { payment: true } });
-      if (prior?.status === "PAID") return { orderId: prior.id };
+      if (prior?.status === "PAID") {
+        if (couponReservation) await finishCouponReservation(couponReservation.reservationKey, prior.couponReservationKey === couponReservation.reservationKey ? "USED" : "RELEASED");
+        return { orderId: prior.id };
+      }
       if (prior?.payment?.provider === "RAZORPAY" && prior.payment.gatewayOrderId) {
+        if (couponReservation && prior.couponReservationKey !== couponReservation.reservationKey) await finishCouponReservation(couponReservation.reservationKey, "RELEASED");
         return { payment: { provider: "razorpay", orderId: prior.id, gatewayOrderId: prior.payment.gatewayOrderId, amount: toPaise(prior.payment.amount.toString()), currency: "INR", keyId: publicRazorpayKey() } };
       }
       return { error: "Payment setup is still in progress. Refresh checkout in a moment." };
     }
     if (mode === "simulated") {
+      if (couponReservation) await finishCouponReservation(couponReservation.reservationKey, "USED");
+      await recordActivity({ actorId: session.user.id, actorRole: "CUSTOMER", action: "order.placed", targetType: "order", targetId: created.id, details: { totalPaise: created.totalPaise, coupon: couponReservation?.code ?? null }, createdAt: new Date() });
       await clearSignedInCart(session.user.id);
       return { orderId: created.id };
     }
     try {
-      const gatewayOrderId = await createGatewayOrder(created.id, created.totalPaise);
+      const order = await db.order.findUniqueOrThrow({ where: { id: created.id }, select: { total: true } });
+      const gatewayOrderId = await createGatewayOrder(created.id, toPaise(order.total.toString()));
       await db.payment.update({ where: { orderId: created.id }, data: { gatewayOrderId } });
       return { payment: { provider: "razorpay", orderId: created.id, gatewayOrderId, amount: created.totalPaise, currency: "INR", keyId: publicRazorpayKey() } };
     } catch {
@@ -180,12 +231,16 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
       return { error: "The payment provider could not start checkout. Your reserved stock has been released; try again." };
     }
   } catch (error) {
+    if (couponReservation) await finishCouponReservation(couponReservation.reservationKey, "RELEASED");
     if (error instanceof OrderError) return { error: error.message };
     if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
-      const duplicate = await db.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true } });
+      const duplicate = await db.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true, status: true, couponReservationKey: true } });
       if (duplicate) {
-        await clearSignedInCart(session.user.id);
-        return { orderId: duplicate.id };
+        if (couponReservation) await finishCouponReservation(couponReservation.reservationKey, duplicate.couponReservationKey === couponReservation.reservationKey && duplicate.status === "PAID" ? "USED" : "RELEASED");
+        if (duplicate.status === "PAID") {
+          await clearSignedInCart(session.user.id);
+          return { orderId: duplicate.id };
+        }
       }
     }
     return { error: "We could not place your order. Please try again." };

@@ -8,21 +8,36 @@ import { paiseToDecimal, toPaise } from "@/lib/money";
 import { syncProductSearchDocument, syncVendorSearchDocuments } from "@/lib/search";
 import { canTransitionOrder, type OrderStatus } from "@/lib/order-lifecycle";
 import { refundGatewayPayment } from "@/lib/payments";
+import { createCouponRecord, finishCouponReservation, restoreUsedCouponReservation, setCouponActive } from "@/lib/marketplace-data";
+import { recordActivity } from "@/lib/mongo";
 
 const approvalSchema = z.object({ vendorId: z.string().min(1).max(40), approved: z.enum(["true", "false"]) });
 const commissionSchema = z.object({ rate: z.coerce.number().min(0).max(50).refine((value) => Number.isInteger(value * 2), "Use increments of 0.5.") });
 const orderStatusSchema = z.object({ orderId: z.string().min(1).max(40), status: z.enum(["PACKED", "SHIPPED", "DELIVERED", "CANCELLED"]) });
+const couponSchema = z.object({
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{3,24}$/),
+  funding: z.enum(["PLATFORM", "VENDOR"]),
+  vendorId: z.string().max(40).optional(),
+  discountType: z.enum(["FIXED", "PERCENT"]),
+  value: z.coerce.number().positive(),
+  maxDiscount: z.union([z.literal(""), z.string().regex(/^\d+(\.\d{1,2})?$/)]).optional(),
+  minimumOrder: z.coerce.number().min(0),
+  usageLimit: z.coerce.number().int().min(1).max(1_000_000),
+  startsAt: z.string().optional(),
+  endsAt: z.string().optional(),
+});
 
 export type AdminActionState = { error?: string; success?: string };
 
 export async function setVendorApproval(_previous: AdminActionState, formData: FormData): Promise<AdminActionState> {
-  await requireRole(["ADMIN"]);
+  const session = await requireRole(["ADMIN"]);
   const parsed = approvalSchema.safeParse({ vendorId: formData.get("vendorId"), approved: formData.get("approved") });
   if (!parsed.success) return { error: "Choose a valid vendor and approval status." };
   try {
     const updated = await db.vendor.updateMany({ where: { id: parsed.data.vendorId }, data: { approved: parsed.data.approved === "true" } });
     if (updated.count !== 1) return { error: "This vendor could not be found. Refresh and try again." };
     await syncVendorSearchDocuments(parsed.data.vendorId, parsed.data.approved === "true");
+    await recordActivity({ actorId: session.user.id, actorRole: "ADMIN", action: parsed.data.approved === "true" ? "vendor.approved" : "vendor.suspended", targetType: "vendor", targetId: parsed.data.vendorId, createdAt: new Date() });
     revalidatePath("/admin");
     return { success: parsed.data.approved === "true" ? "Vendor approved." : "Vendor suspended." };
   } catch {
@@ -37,6 +52,45 @@ export async function saveCommission(_previous: AdminActionState, formData: Form
   await db.setting.upsert({ where: { id: 1 }, update: { commissionRate: parsed.data.rate }, create: { id: 1, commissionRate: parsed.data.rate } });
   revalidatePath("/admin/commission");
   return { success: "Commission rate saved. It applies to future orders only." };
+}
+
+export async function createCoupon(_previous: AdminActionState, formData: FormData): Promise<AdminActionState> {
+  const session = await requireRole(["ADMIN"]);
+  const parsed = couponSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the coupon fields." };
+  const data = parsed.data;
+  if (data.discountType === "PERCENT" && data.value > 100) return { error: "Percentage discounts cannot exceed 100%." };
+  if (data.funding === "VENDOR" && !data.vendorId) return { error: "Choose the shop funding this coupon." };
+  if (data.funding === "PLATFORM" && data.vendorId) return { error: "Platform-funded coupons cannot be tied to a shop." };
+  const vendorId = data.vendorId || null;
+  if (vendorId && !await db.vendor.findFirst({ where: { id: vendorId, approved: true }, select: { id: true } })) return { error: "Choose an approved vendor." };
+  const startsAt = data.startsAt ? new Date(data.startsAt) : null;
+  const endsAt = data.endsAt ? new Date(data.endsAt) : null;
+  if ((startsAt && Number.isNaN(startsAt.getTime())) || (endsAt && Number.isNaN(endsAt.getTime())) || (startsAt && endsAt && startsAt >= endsAt)) return { error: "Choose a valid coupon date range." };
+  try {
+    await createCouponRecord({
+      code: data.code, funding: data.funding, vendorId, discountType: data.discountType,
+      value: data.discountType === "FIXED" ? toPaise(data.value) : data.value,
+      maxDiscountPaise: data.maxDiscount ? toPaise(Number(data.maxDiscount)) : null,
+      minimumOrderPaise: toPaise(data.minimumOrder), usageLimit: data.usageLimit, startsAt, endsAt, active: true, createdBy: session.user.id,
+    });
+    await recordActivity({ actorId: session.user.id, actorRole: "ADMIN", action: "coupon.created", targetType: "coupon", targetId: data.code, details: { funding: data.funding, type: data.discountType }, createdAt: new Date() });
+    revalidatePath("/admin/coupons");
+    return { success: `Coupon ${data.code} created.` };
+  } catch (error) {
+    return { error: error instanceof Error && error.message.includes("E11000") ? "That coupon code already exists." : error instanceof Error ? error.message : "Could not create the coupon." };
+  }
+}
+
+export async function changeCouponActive(formData: FormData) {
+  const session = await requireRole(["ADMIN"]);
+  const id = String(formData.get("id") ?? "");
+  const active = formData.get("active") === "true";
+  const updated = await setCouponActive(id, active);
+  if (updated) {
+    await recordActivity({ actorId: session.user.id, actorRole: "ADMIN", action: active ? "coupon.activated" : "coupon.deactivated", targetType: "coupon", targetId: id, createdAt: new Date() });
+    revalidatePath("/admin/coupons");
+  }
 }
 
 export async function updateOrderStatus(_previous: AdminActionState, formData: FormData): Promise<AdminActionState> {
@@ -102,6 +156,12 @@ export async function updateOrderStatus(_previous: AdminActionState, formData: F
       }
     });
     await Promise.all(changedProductIds.map((productId) => syncProductSearchDocument(productId)));
+    if (parsed.data.status === "CANCELLED") {
+      const order = await db.order.findUnique({ where: { id: parsed.data.orderId }, select: { couponReservationKey: true } });
+      await finishCouponReservation(order?.couponReservationKey, "RELEASED");
+      await restoreUsedCouponReservation(parsed.data.orderId);
+    }
+    await recordActivity({ actorId: session.user.id, actorRole: "ADMIN", action: `order.${parsed.data.status.toLowerCase()}`, targetType: "order", targetId: parsed.data.orderId, createdAt: new Date() });
     revalidatePath("/admin/orders");
     revalidatePath("/admin/commission");
     revalidatePath("/vendor/orders");

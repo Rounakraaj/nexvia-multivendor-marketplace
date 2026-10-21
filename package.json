@@ -12,7 +12,8 @@
     "reindex": "tsx scripts/reindex.ts",
     "test:idempotency": "tsx scripts/test-idempotency.ts",
     "test:order-lifecycle": "tsx scripts/test-order-lifecycle.ts",
-    "test:payment-signatures": "tsx scripts/test-payment-signatures.ts"
+    "test:payment-signatures": "tsx scripts/test-payment-signatures.ts",
+    "test:coupon-math": "tsx scripts/test-coupon-math.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1154.0",
@@ -26,6 +27,7 @@
     "mongodb": "^7.7.0",
     "next": "16.4.2",
     "next-auth": "^4.24.15",
+    "pdfkit": "^0.20.2",
     "pg": "^8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -36,6 +38,7 @@
     "@tailwindcss/turbopack": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",

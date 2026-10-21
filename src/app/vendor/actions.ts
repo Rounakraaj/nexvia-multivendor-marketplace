@@ -7,6 +7,7 @@ import { requireApprovedVendor } from "@/lib/guard";
 import { db } from "@/lib/db";
 import { assertProductImageObject, deleteProductImage, isProductImageKeyForVendor } from "@/lib/s3";
 import { syncProductSearchDocument } from "@/lib/search";
+import { recordActivity } from "@/lib/mongo";
 
 const orderStatusSchema = z.object({ orderId: z.string().min(1).max(40), status: z.enum(["PACKED", "SHIPPED"]) });
 export type ShipmentState = { error?: string; success?: string };
@@ -46,6 +47,7 @@ export async function createProduct(formData: FormData) {
   }
   const product = await db.product.create({ data: { ...data, description: data.description ?? null, image: data.image ?? null, vendorId: vendor.id }, select: { id: true } });
   await syncProductSearchDocument(product.id, true);
+  await recordActivity({ actorId: vendor.userId, actorRole: "VENDOR", action: "product.created", targetType: "product", targetId: product.id, createdAt: new Date() });
   revalidatePath("/vendor/products");
   redirect("/vendor/products");
 }
@@ -61,6 +63,7 @@ export async function updateProduct(id: string, formData: FormData) {
   }
   await db.product.update({ where: { id }, data: { ...data, description: data.description ?? null, image: data.image ?? null } });
   await syncProductSearchDocument(id, current.category !== data.category);
+  await recordActivity({ actorId: vendor.userId, actorRole: "VENDOR", action: "product.updated", targetType: "product", targetId: id, createdAt: new Date() });
   if (current.image !== data.image) await removeImageBestEffort(current.image);
   revalidatePath("/vendor/products");
   redirect("/vendor/products");
@@ -74,6 +77,7 @@ export async function deleteProduct(formData: FormData) {
   if (!product) return;
   await db.product.delete({ where: { id: product.id } });
   await syncProductSearchDocument(product.id, true);
+  await recordActivity({ actorId: vendor.userId, actorRole: "VENDOR", action: "product.deleted", targetType: "product", targetId: product.id, createdAt: new Date() });
   await removeImageBestEffort(product.image);
   revalidatePath("/vendor/products");
 }
@@ -100,6 +104,7 @@ export async function advanceVendorOrder(_previous: ShipmentState, formData: For
     revalidatePath("/vendor/orders");
     revalidatePath("/orders");
     revalidatePath("/admin/orders");
+    await recordActivity({ actorId: vendor.userId, actorRole: "VENDOR", action: `order.${parsed.data.status.toLowerCase()}`, targetType: "order", targetId: parsed.data.orderId, createdAt: new Date() });
     return { success: `Order marked as ${parsed.data.status.toLowerCase()}.` };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not update this order." };

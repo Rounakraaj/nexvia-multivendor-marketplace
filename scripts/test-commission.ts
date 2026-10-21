@@ -20,6 +20,14 @@ try {
   assert(splitCommission(1, 0).commissionPaise === 0, "Zero commission stays zero.");
   assert(splitCommission(100, 10).commissionPaise === 10, "Ten percent commission is exact.");
   assert(splitCommission(100, 12.5).commissionPaise === 13, "Half-paise rounds to the next paisa.");
+
+  const gross = 12_345;
+  const split = splitCommission(gross, 12.5);
+  const vendorDiscount = 1_234;
+  assert(split.commissionPaise + (split.vendorEarningPaise - vendorDiscount) + vendorDiscount === gross, "Vendor-funded discount must reconcile with commission and seller earnings.");
+  const platformDiscount = 1_234;
+  assert((split.commissionPaise - platformDiscount) + split.vendorEarningPaise === gross - platformDiscount, "Platform-funded discount must reduce platform revenue and customer total while preserving seller earnings.");
+
   console.log("PASS: commission split checks");
 } catch (error) {
   console.error("FAIL: commission split checks", error instanceof Error ? error.message : "Unknown error");

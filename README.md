@@ -11,7 +11,7 @@ A multi-vendor marketplace built with Next.js 16, React 19, TypeScript, Tailwind
 - Commission and seller earnings stored as integer-paise-derived PostgreSQL values.
 - Optional S3-compatible product image uploads. Uploads use a short-lived presigned form, enforce JPEG/PNG/WebP and a 2 MB limit, and store object keys on `Product.image`.
 - Optional typo-tolerant Elasticsearch search, filters, sorting, paging, and header autocomplete; PostgreSQL search remains the fallback.
-- Optional MongoDB collection for zero-result search analytics.
+- MongoDB collections for product reviews, coupons and redemption reservations, zero-result search analytics, and activity records; product rating aggregates are mirrored into PostgreSQL for search.
 - Optional Redis carts for signed-in customers, short-lived category/search caches, rate limits, and request idempotency; guest carts stay in local storage.
 - S3 outages disable image upload and image delivery without preventing text-only product management or taking down the rest of the site.
 
@@ -37,7 +37,7 @@ PostgreSQL remains the source of truth for products, stock, orders, and the ledg
 | --- | --- |
 | PostgreSQL | Users and roles; vendors and balances; products, stock, and rating aggregates; orders with per-customer idempotency keys, order items, shipping data, status history, payments, and commission ledger values; marketplace settings |
 | Elasticsearch | Rebuildable search documents for approved products, including title suggestions, category, price, stock, vendor, rating, and creation time |
-| MongoDB | Optional zero-result search events only in this phase; later review and coupon documents are planned |
+| MongoDB | Reviews and vendor replies; coupons and redemption reservations; zero-result search events; activity records |
 | S3-compatible object storage | Private product image objects; PostgreSQL stores the object key |
 
 Elasticsearch is derived data and can be reconstructed with `npm run reindex`. PostgreSQL remains authoritative if Elasticsearch or MongoDB is unavailable.
@@ -62,6 +62,8 @@ Elasticsearch is derived data and can be reconstructed with `npm run reindex`. P
 | `POST /api/payments/verify` | Verify Razorpay checkout signature and captured payment against the stored gateway order |
 | `POST /api/payments/webhook` | Verify Razorpay HMAC webhook and process captured/failed events idempotently |
 | `POST /api/payments/expire` | Secret-protected expiry job for abandoned Razorpay orders; releases reserved stock |
+| `POST /api/coupons/preview` | Validate a coupon against server-priced cart products before checkout |
+| `/api/orders/[id]/invoice` | Generate an owner-checked PDF invoice |
 
 ### Order lifecycle
 
@@ -70,6 +72,10 @@ New checkouts start as `PAID`. A vendor can mark an order packed and then shippe
 ### Payments
 
 `PAYMENT_PROVIDER=simulated` is the default and records a simulated captured payment. For Razorpay test mode, set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` using test-mode values from the Razorpay dashboard. The server creates a Razorpay order from the database-priced cart, reserves inventory, and records the marketplace order as `PENDING`. It marks the order `PAID` and credits seller balances only after verifying the stored Razorpay order ID, checkout HMAC, and captured status. Configure the Razorpay webhook URL as `/api/payments/webhook` for `payment.captured` and `payment.failed` events. Schedule `POST /api/payments/expire` with `Authorization: Bearer $CRON_SECRET` at least every 10 minutes; the default pending-payment lifetime is 30 minutes and can be changed with `PAYMENT_PENDING_TTL_MINUTES`. Admin cancellation requests a Razorpay refund before releasing stock and reversing seller earnings. Keep gateway secrets server-side and use test keys until end-to-end test payments pass.
+
+### Reviews and coupon accounting
+
+Only customers with a delivered order can review that product, and MongoDB enforces one review per customer/product. Vendors can reply only to reviews on their own products. Product average and count are recalculated from MongoDB and mirrored into PostgreSQL. Admin coupons can be platform-funded or tied to an approved vendor. Vendor-funded discounts reduce that vendor's earnings; platform-funded discounts reduce platform revenue and preserve seller earnings. The checkout reserves usage atomically in MongoDB and releases the reservation when payment fails or expires. PostgreSQL stores each order's subtotal, discount, coupon funding, and item-level allocation for ledger verification. PDF invoices are generated when requested; no invoice files are stored.
 
 ## Local setup
 
@@ -130,6 +136,7 @@ Session lookups are not cached. Roles and account state should reflect the curre
 - `npm run test:idempotency` — verifies the database unique constraint inside a transaction that rolls back its temporary test order.
 - `npm run test:order-lifecycle` — checks allowed order status transitions.
 - `npm run test:payment-signatures` — checks valid and tampered checkout and webhook signatures.
+- `npm run test:coupon-math` — checks integer-paise discount allocation.
 - `npx tsx scripts/test-commission.ts` — commission rounding checks.
 - `npm run reindex` — rebuild Elasticsearch from approved PostgreSQL products; prints `SKIP` if Elasticsearch is not configured.
 

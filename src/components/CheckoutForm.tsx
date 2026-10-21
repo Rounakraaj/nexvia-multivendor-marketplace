@@ -37,8 +37,25 @@ export default function CheckoutForm({ customerName, paymentProvider }: { custom
   const { items, total, ready } = useCart();
   const [state, action, pending] = useActionState<CheckoutState, FormData>(placeOrder, {});
   const [idempotencyKey, setIdempotencyKey] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponPreview, setCouponPreview] = useState<{ code: string; discountPaise: number; payablePaise: number; cartSignature: string } | null>(null);
+  const [couponError, setCouponError] = useState("");
   const activeGatewayOrder = useRef<string | null>(null);
   const cartSignature = items.map((item) => `${item.id}:${item.qty}`).sort().join("|");
+  const activeCouponPreview = couponPreview?.cartSignature === cartSignature && couponPreview.code === couponCode.trim().toUpperCase() ? couponPreview : null;
+
+  async function applyCoupon() {
+    setCouponError("");
+    setCouponPreview(null);
+    try {
+      const response = await fetch("/api/coupons/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: couponCode, items: items.map(({ id, qty }) => ({ productId: id, qty })) }) });
+      const result = await response.json() as { code?: string; discountPaise?: number; payablePaise?: number; error?: string };
+      if (!response.ok || result.discountPaise === undefined || result.payablePaise === undefined || !result.code) throw new Error(result.error ?? "This coupon cannot be applied.");
+      setCouponPreview({ code: result.code, discountPaise: result.discountPaise, payablePaise: result.payablePaise, cartSignature });
+    } catch (error) {
+      setCouponError(error instanceof Error ? error.message : "This coupon cannot be applied.");
+    }
+  }
 
   useEffect(() => {
     if (!ready || !cartSignature) return;
@@ -142,7 +159,10 @@ export default function CheckoutForm({ customerName, paymentProvider }: { custom
       <ul className="mt-4 space-y-3 border-b border-[var(--line)] pb-4">
         {items.map((item) => <li key={item.id} className="flex justify-between gap-3 text-sm"><span className="min-w-0 truncate text-[var(--muted)]">{item.title} × {item.qty}</span><span className="nums whitespace-nowrap">{formatPrice(item.price * item.qty)}</span></li>)}
       </ul>
-      <p className="mt-4 flex justify-between font-bold"><span>Total</span><span className="nums">{formatPrice(total)}</span></p>
+      <p className="mt-4 flex justify-between text-sm"><span className="text-[var(--muted)]">Subtotal</span><span className="nums">{formatPrice(total)}</span></p>
+      <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4"><label className="label" htmlFor="couponCode">Coupon code</label><div className="flex gap-2"><input className="field min-w-0" id="couponCode" name="couponCode" value={couponCode} maxLength={24} onChange={(event) => { setCouponCode(event.target.value.toUpperCase()); setCouponPreview(null); setCouponError(""); }} /><button type="button" className="btn btn-secondary btn-sm" onClick={applyCoupon} disabled={!couponCode.trim()}>Apply</button></div>{couponError && <p className="text-xs text-[var(--danger)]" role="alert">{couponError}</p>}{activeCouponPreview && <p className="text-xs text-[var(--lime)]">{activeCouponPreview.code} applied. You save {formatPrice(activeCouponPreview.discountPaise / 100)}.</p>}</div>
+      {activeCouponPreview && <p className="mt-3 flex justify-between text-sm"><span className="text-[var(--muted)]">Discount</span><span className="nums text-[var(--lime)]">−{formatPrice(activeCouponPreview.discountPaise / 100)}</span></p>}
+      <p className="mt-4 flex justify-between font-bold"><span>Total</span><span className="nums">{activeCouponPreview ? formatPrice(activeCouponPreview.payablePaise / 100) : formatPrice(total)}</span></p>
       <p className="mt-3 text-xs text-[var(--muted)]">{paymentProvider === "razorpay" ? "Razorpay test mode is active. Prices and stock are checked again before payment." : "Payment is simulated for this order. Prices and stock are checked again before it is placed."}</p>
       {state.error && <p className="mt-4 rounded-lg border border-[var(--danger)] px-3 py-2 text-sm text-[var(--danger)]" role="alert">{state.error}</p>}
       <button className="btn btn-primary mt-5 w-full" disabled={pending || !idempotencyKey}>{pending ? "Placing order…" : "Pay and place order"}</button>

@@ -36,6 +36,11 @@ enum PaymentStatus {
   CANCELLED
 }
 
+enum CouponFunding {
+  PLATFORM
+  VENDOR
+}
+
 model User {
   id        String   @id @default(cuid())
   name      String
@@ -83,6 +88,11 @@ model Order {
   id              String      @id @default(cuid())
   customerId      String
   total           Decimal     @db.Decimal(10, 2)
+  subtotal        Decimal     @default(0) @db.Decimal(10, 2)
+  discountTotal   Decimal     @default(0) @db.Decimal(10, 2)
+  couponCode      String?
+  couponFunding   CouponFunding?
+  couponReservationKey String?
   status          OrderStatus @default(PENDING)
   shippingName    String?
   shippingPhone   String?
@@ -141,6 +151,8 @@ model OrderItem {
   qty           Int
   commission    Decimal @db.Decimal(10, 2)
   vendorEarning Decimal @db.Decimal(10, 2)
+  discount      Decimal @default(0) @db.Decimal(10, 2)
+  vendorDiscount Decimal @default(0) @db.Decimal(10, 2)
 
   order   Order   @relation(fields: [orderId], references: [id])
   product Product @relation(fields: [productId], references: [id])

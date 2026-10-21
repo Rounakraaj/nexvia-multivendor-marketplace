@@ -45,7 +45,7 @@ export default async function ProductsPage() {
             )}
             {products.map((p) => (
               <tr key={p.id}>
-                <td className="font-semibold">{p.title}</td>
+                <td className="font-semibold"><Link className="tap-target inline-flex items-center hover:underline" href={`/products/${p.id}`}>{p.title}</Link></td>
                 <td>{p.category}</td>
                 <td>{formatPrice(Number(p.price))}</td>
                 <td>
