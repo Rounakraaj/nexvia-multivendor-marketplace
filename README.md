@@ -5,7 +5,8 @@ A multi-vendor marketplace built with Next.js 16, React 19, TypeScript, Tailwind
 ## Current features
 
 - Customer, vendor, and admin accounts with server-side role and ownership checks.
-- Vendor product management, admin vendor approval, checkout, shipping details, order history, and order status controls.
+- Vendor product management, admin vendor approval, checkout, shipping details, order history, and a guarded paid → packed → shipped → delivered lifecycle. Admin cancellation restores stock and reverses seller earnings in one transaction.
+- Order status history with actor and timestamp, shown in customer, vendor, and admin order views.
 - Commission and seller earnings stored as integer-paise-derived PostgreSQL values.
 - Optional S3-compatible product image uploads. Uploads use a short-lived presigned form, enforce JPEG/PNG/WebP and a 2 MB limit, and store object keys on `Product.image`.
 - Optional typo-tolerant Elasticsearch search, filters, sorting, paging, and header autocomplete; PostgreSQL search remains the fallback.
@@ -33,7 +34,7 @@ PostgreSQL remains the source of truth for products, stock, orders, and the ledg
 
 | Store | Data |
 | --- | --- |
-| PostgreSQL | Users and roles; vendors and balances; products, stock, and rating aggregates; orders with per-customer idempotency keys, order items, shipping data, and commission ledger values; marketplace settings |
+| PostgreSQL | Users and roles; vendors and balances; products, stock, and rating aggregates; orders with per-customer idempotency keys, order items, shipping data, status history, and commission ledger values; marketplace settings |
 | Elasticsearch | Rebuildable search documents for approved products, including title suggestions, category, price, stock, vendor, rating, and creation time |
 | MongoDB | Optional zero-result search events only in this phase; later review and coupon documents are planned |
 | S3-compatible object storage | Private product image objects; PostgreSQL stores the object key |
@@ -57,6 +58,10 @@ Elasticsearch is derived data and can be reconstructed with `npm run reindex`. P
 | `GET /api/product-images?key=…` | Redirect to a short-lived URL for an approved product image |
 | `GET /api/search/suggest?q=…` | Header autocomplete suggestions |
 | `/api/cart` | Authenticated cart sync; Redis-backed when available, local-storage fallback otherwise |
+
+### Order lifecycle
+
+New checkouts start as `PAID`. A vendor can mark an order packed and then shipped only when every item belongs to that vendor. The admin can advance mixed-vendor orders and mark shipped orders delivered. The admin can cancel pending or undelivered orders; the transaction restores product stock, reverses vendor balance credits, and appends a status history event. Every transition checks the current state in the database to reject stale or repeated updates.
 
 ## Local setup
 

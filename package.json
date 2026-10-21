@@ -10,7 +10,8 @@
     "seed": "tsx scripts/seed.ts",
     "verify": "tsx scripts/verify-ledger.ts",
     "reindex": "tsx scripts/reindex.ts",
-    "test:idempotency": "tsx scripts/test-idempotency.ts"
+    "test:idempotency": "tsx scripts/test-idempotency.ts",
+    "test:order-lifecycle": "tsx scripts/test-order-lifecycle.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1154.0",

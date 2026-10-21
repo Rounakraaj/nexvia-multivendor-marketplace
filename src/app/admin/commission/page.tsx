@@ -6,7 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import CommissionForm from "@/components/CommissionForm";
 import SplitBar from "@/components/SplitBar";
 
-const paidStatuses = ["PAID", "SHIPPED", "DELIVERED"] as const;
+const paidStatuses = ["PAID", "PACKED", "SHIPPED", "DELIVERED"] as const;
 
 export default async function AdminCommissionPage() {
   await requireRole(["ADMIN"]);

@@ -5,7 +5,7 @@ import { toPaise } from "@/lib/money";
 import PageHeader from "@/components/PageHeader";
 import SplitBar from "@/components/SplitBar";
 
-const paidStatuses = ["PAID", "SHIPPED", "DELIVERED"] as const;
+const paidStatuses = ["PAID", "PACKED", "SHIPPED", "DELIVERED"] as const;
 
 export default async function VendorEarningsPage() {
   const vendor = await requireApprovedVendor();

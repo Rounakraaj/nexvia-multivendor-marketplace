@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { assertProductImageObject, deleteProductImage, isProductImageKeyForVendor } from "@/lib/s3";
 import { syncProductSearchDocument } from "@/lib/search";
 
-const orderIdSchema = z.string().min(1).max(40);
+const orderStatusSchema = z.object({ orderId: z.string().min(1).max(40), status: z.enum(["PACKED", "SHIPPED"]) });
 export type ShipmentState = { error?: string; success?: string };
 
 const productSchema = z.object({
@@ -78,26 +78,29 @@ export async function deleteProduct(formData: FormData) {
   revalidatePath("/vendor/products");
 }
 
-export async function markOrderShipped(_previous: ShipmentState, formData: FormData): Promise<ShipmentState> {
+export async function advanceVendorOrder(_previous: ShipmentState, formData: FormData): Promise<ShipmentState> {
   const vendor = await requireApprovedVendor();
-  const parsed = orderIdSchema.safeParse(formData.get("orderId"));
+  const parsed = orderStatusSchema.safeParse({ orderId: formData.get("orderId"), status: formData.get("status") });
   if (!parsed.success) return { error: "This order could not be identified." };
   try {
     await db.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
-        where: { id: parsed.data },
+        where: { id: parsed.data.orderId },
         select: { status: true, items: { select: { vendorId: true } } },
       });
       if (!order || order.items.length === 0 || order.items.some((item) => item.vendorId !== vendor.id)) {
         throw new Error("Orders that contain products from other shops must be shipped by the marketplace.");
       }
-      if (order.status !== "PAID") throw new Error("Only paid orders can be marked as shipped.");
-      const result = await tx.order.updateMany({ where: { id: parsed.data, status: "PAID" }, data: { status: "SHIPPED" } });
+      const expectedStatus = parsed.data.status === "PACKED" ? "PAID" : "PACKED";
+      if (order.status !== expectedStatus) throw new Error(`Only ${expectedStatus.toLowerCase()} orders can be marked ${parsed.data.status.toLowerCase()}.`);
+      const result = await tx.order.updateMany({ where: { id: parsed.data.orderId, status: expectedStatus }, data: { status: parsed.data.status } });
       if (result.count !== 1) throw new Error("The order status changed. Refresh and try again.");
+      await tx.orderStatusHistory.create({ data: { orderId: parsed.data.orderId, status: parsed.data.status, changedById: vendor.userId } });
     });
     revalidatePath("/vendor/orders");
     revalidatePath("/orders");
-    return { success: "Order marked as shipped." };
+    revalidatePath("/admin/orders");
+    return { success: `Order marked as ${parsed.data.status.toLowerCase()}.` };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not update this order." };
   }

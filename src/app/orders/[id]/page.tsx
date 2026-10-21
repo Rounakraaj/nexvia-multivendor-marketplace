@@ -7,15 +7,16 @@ import { toPaise } from "@/lib/money";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import SplitBar from "@/components/SplitBar";
+import OrderTimeline from "@/components/OrderTimeline";
 
-const badgeClass: Record<string, string> = { PAID: "badge-ok", SHIPPED: "badge-warn", DELIVERED: "badge-ok", CANCELLED: "badge-bad", PENDING: "badge-warn" };
+const badgeClass: Record<string, string> = { PAID: "badge-ok", PACKED: "badge-warn", SHIPPED: "badge-warn", DELIVERED: "badge-ok", CANCELLED: "badge-bad", PENDING: "badge-warn" };
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(["CUSTOMER"]);
   const { id } = await params;
   const order = await db.order.findFirst({
     where: { id, customerId: session.user.id },
-    include: { items: { include: { product: { select: { title: true } }, vendor: { select: { shopName: true } } } } },
+    include: { items: { include: { product: { select: { title: true } }, vendor: { select: { shopName: true } } } }, statusHistory: { orderBy: { createdAt: "asc" }, include: { changedBy: { select: { name: true } } } } },
   });
   if (!order) notFound();
   const commission = order.items.reduce((sum, item) => sum + toPaise(item.commission.toString()), 0);
@@ -34,6 +35,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <p className="nums font-semibold">{formatPrice(Number(item.price) * item.qty)}</p>
         </li>)}
       </ul>
+      <section className="panel mt-6 space-y-3 p-5"><h2 className="font-semibold">Order timeline</h2><OrderTimeline events={order.statusHistory} /></section>
       <section className="panel mt-6 space-y-4 p-5">
         <div className="flex justify-between"><span className="text-[var(--muted)]">Total</span><span className="nums font-bold">{formatPrice(Number(order.total))}</span></div>
         <h2 className="font-semibold">Order split</h2>

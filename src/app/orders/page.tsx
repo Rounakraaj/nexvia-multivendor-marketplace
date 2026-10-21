@@ -6,7 +6,7 @@ import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import PageHeader from "@/components/PageHeader";
 
-const badgeClass: Record<string, string> = { PAID: "badge-ok", SHIPPED: "badge-warn", DELIVERED: "badge-ok", CANCELLED: "badge-bad", PENDING: "badge-warn" };
+const badgeClass: Record<string, string> = { PAID: "badge-ok", PACKED: "badge-warn", SHIPPED: "badge-warn", DELIVERED: "badge-ok", CANCELLED: "badge-bad", PENDING: "badge-warn" };
 
 export default async function OrdersPage() {
   const session = await requireRole(["CUSTOMER"]);

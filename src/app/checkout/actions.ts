@@ -132,6 +132,7 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
               vendorEarning: paiseToDecimal(line.vendorEarningPaise),
             })),
           },
+          statusHistory: { create: { status: "PAID", note: "Payment confirmed." } },
         },
         select: { id: true },
       });

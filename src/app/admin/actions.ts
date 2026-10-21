@@ -6,10 +6,11 @@ import { requireRole } from "@/lib/guard";
 import { db } from "@/lib/db";
 import { paiseToDecimal, toPaise } from "@/lib/money";
 import { syncProductSearchDocument, syncVendorSearchDocuments } from "@/lib/search";
+import { canTransitionOrder, type OrderStatus } from "@/lib/order-lifecycle";
 
 const approvalSchema = z.object({ vendorId: z.string().min(1).max(40), approved: z.enum(["true", "false"]) });
 const commissionSchema = z.object({ rate: z.coerce.number().min(0).max(50).refine((value) => Number.isInteger(value * 2), "Use increments of 0.5.") });
-const orderStatusSchema = z.object({ orderId: z.string().min(1).max(40), status: z.enum(["SHIPPED", "DELIVERED", "CANCELLED"]) });
+const orderStatusSchema = z.object({ orderId: z.string().min(1).max(40), status: z.enum(["PACKED", "SHIPPED", "DELIVERED", "CANCELLED"]) });
 
 export type AdminActionState = { error?: string; success?: string };
 
@@ -38,23 +39,21 @@ export async function saveCommission(_previous: AdminActionState, formData: Form
 }
 
 export async function updateOrderStatus(_previous: AdminActionState, formData: FormData): Promise<AdminActionState> {
-  await requireRole(["ADMIN"]);
+  const session = await requireRole(["ADMIN"]);
   const parsed = orderStatusSchema.safeParse({ orderId: formData.get("orderId"), status: formData.get("status") });
   if (!parsed.success) return { error: "Choose a valid order status." };
   try {
-    if (parsed.data.status !== "CANCELLED") {
-      const allowed = parsed.data.status === "SHIPPED" ? ["PAID", "SHIPPED"] as const : ["SHIPPED", "DELIVERED"] as const;
-      const result = await db.order.updateMany({ where: { id: parsed.data.orderId, status: { in: [...allowed] } }, data: { status: parsed.data.status } });
-      if (result.count !== 1) return { error: `This order cannot be marked ${parsed.data.status.toLowerCase()} from its current status.` };
-    } else {
-      let changedProductIds: string[] = [];
-      await db.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({ where: { id: parsed.data.orderId }, include: { items: true } });
-        if (!order) throw new Error("Order not found.");
-        if (order.status === "CANCELLED" || order.status === "DELIVERED") throw new Error("Cancelled or delivered orders cannot be cancelled again.");
-        const updated = await tx.order.updateMany({ where: { id: order.id, status: { in: ["PENDING", "PAID", "SHIPPED"] } }, data: { status: "CANCELLED" } });
-        if (updated.count !== 1) throw new Error("The order status changed. Refresh and try again.");
+    let changedProductIds: string[] = [];
+    await db.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: parsed.data.orderId }, include: { items: true } });
+      if (!order) throw new Error("Order not found.");
+      const nextStatus = parsed.data.status as OrderStatus;
+      if (!canTransitionOrder(order.status, nextStatus)) throw new Error(`This order cannot be marked ${nextStatus.toLowerCase()} from its current status.`);
+      const updated = await tx.order.updateMany({ where: { id: order.id, status: order.status }, data: { status: nextStatus } });
+      if (updated.count !== 1) throw new Error("The order status changed. Refresh and try again.");
+      await tx.orderStatusHistory.create({ data: { orderId: order.id, status: nextStatus, changedById: session.user.id } });
 
+      if (nextStatus === "CANCELLED") {
         const stockByProduct = new Map<string, number>();
         const balanceByVendor = new Map<string, number>();
         for (const item of order.items) {
@@ -63,10 +62,12 @@ export async function updateOrderStatus(_previous: AdminActionState, formData: F
         }
         changedProductIds = [...stockByProduct.keys()];
         for (const [productId, qty] of stockByProduct) await tx.product.update({ where: { id: productId }, data: { stock: { increment: qty } } });
-        for (const [vendorId, earning] of balanceByVendor) await tx.vendor.update({ where: { id: vendorId }, data: { balance: { decrement: paiseToDecimal(earning) } } });
-      });
-      await Promise.all(changedProductIds.map((productId) => syncProductSearchDocument(productId)));
-    }
+        if (order.status !== "PENDING") {
+          for (const [vendorId, earning] of balanceByVendor) await tx.vendor.update({ where: { id: vendorId }, data: { balance: { decrement: paiseToDecimal(earning) } } });
+        }
+      }
+    });
+    await Promise.all(changedProductIds.map((productId) => syncProductSearchDocument(productId)));
     revalidatePath("/admin/orders");
     revalidatePath("/admin/commission");
     revalidatePath("/vendor/orders");

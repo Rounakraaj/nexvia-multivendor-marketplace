@@ -16,6 +16,7 @@ enum Role {
 enum OrderStatus {
   PENDING
   PAID
+  PACKED
   SHIPPED
   DELIVERED
   CANCELLED
@@ -31,6 +32,7 @@ model User {
 
   vendor Vendor?
   orders Order[]
+  orderStatusChanges OrderStatusHistory[]
 }
 
 model Vendor {
@@ -76,9 +78,24 @@ model Order {
 
   customer User        @relation(fields: [customerId], references: [id])
   items    OrderItem[]
+  statusHistory OrderStatusHistory[]
 
   @@unique([customerId, idempotencyKey])
   @@index([customerId, createdAt])
+}
+
+model OrderStatusHistory {
+  id          String      @id @default(cuid())
+  orderId     String
+  status      OrderStatus
+  note        String?
+  changedById String?
+  createdAt   DateTime    @default(now())
+
+  order     Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  changedBy User? @relation(fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
 }
 
 model OrderItem {

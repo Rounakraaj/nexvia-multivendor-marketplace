@@ -10,9 +10,10 @@ export default function AdminOrderStatusForm({ orderId, status }: { orderId: str
     if (state.success) showToast(state.success);
     if (state.error) showToast(state.error, "error");
   }, [state]);
-  const choices = status === "PAID" ? [["SHIPPED", "Shipped"], ["CANCELLED", "Cancelled"]] :
+  const choices = status === "PAID" ? [["PACKED", "Packed"], ["CANCELLED", "Cancelled"]] :
+    status === "PACKED" ? [["SHIPPED", "Shipped"], ["CANCELLED", "Cancelled"]] :
     status === "SHIPPED" ? [["DELIVERED", "Delivered"], ["CANCELLED", "Cancelled"]] :
-    status === "PENDING" ? [["CANCELLED", "Cancelled"]] : status === "DELIVERED" ? [["DELIVERED", "Delivered"]] : [];
+    status === "PENDING" ? [["CANCELLED", "Cancelled"]] : [];
   if (!choices.length) return <span className="text-sm text-[var(--muted)]">No actions</span>;
   return <form action={action} className="flex min-w-48 flex-col gap-2">
     <input type="hidden" name="orderId" value={orderId} />
