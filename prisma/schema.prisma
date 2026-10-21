@@ -62,14 +62,19 @@ model Product {
 }
 
 model Order {
-  id         String      @id @default(cuid())
-  customerId String
-  total      Decimal     @db.Decimal(10, 2)
-  status     OrderStatus @default(PENDING)
-  createdAt  DateTime    @default(now())
+  id              String      @id @default(cuid())
+  customerId      String
+  total           Decimal     @db.Decimal(10, 2)
+  status          OrderStatus @default(PENDING)
+  shippingName    String?
+  shippingPhone   String?
+  shippingAddress String?
+  createdAt       DateTime    @default(now())
 
   customer User        @relation(fields: [customerId], references: [id])
   items    OrderItem[]
+
+  @@index([customerId, createdAt])
 }
 
 model OrderItem {
@@ -85,6 +90,8 @@ model OrderItem {
   order   Order   @relation(fields: [orderId], references: [id])
   product Product @relation(fields: [productId], references: [id])
   vendor  Vendor  @relation(fields: [vendorId], references: [id])
+
+  @@index([vendorId, orderId])
 }
 
 model Setting {
