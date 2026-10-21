@@ -1,5 +1,6 @@
 ﻿import Link from "next/link";
 import { notFound } from "next/navigation";
+import Image from "next/image";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
 import SiteHeader from "@/components/SiteHeader";
@@ -24,6 +25,9 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           <Link href={`/?category=${encodeURIComponent(p.category)}`} className="tap-target inline-flex items-center px-1 hover:underline">{p.category}</Link>
         </nav>
 
+        {p.image?.startsWith("products/") && <div className="relative mt-6 aspect-[4/3] overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-2)]">
+          <Image src={`/api/product-images?key=${encodeURIComponent(p.image)}`} alt={p.title} fill unoptimized priority className="object-cover" sizes="(max-width: 672px) 100vw, 672px" />
+        </div>}
         <p className="mt-8 text-sm text-[var(--muted)]">Sold by {p.vendor.shopName}</p>
         <h1 className="mt-1 text-4xl font-extrabold leading-tight">{p.title}</h1>
         <p className="nums mt-5 text-3xl font-extrabold">{formatPrice(Number(p.price))}</p>
@@ -38,7 +42,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           id={p.id}
           title={p.title}
           price={Number(p.price)}
-          image={null}
+          image={p.image?.startsWith("products/") ? `/api/product-images?key=${encodeURIComponent(p.image)}` : null}
           shop={p.vendor.shopName}
           stock={p.stock}
         />

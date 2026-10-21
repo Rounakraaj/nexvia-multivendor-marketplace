@@ -1,5 +1,6 @@
 ﻿import type { Metadata } from "next";
 import { Sora } from "next/font/google";
+import { connection } from "next/server";
 import ToastProvider from "@/components/ToastProvider";
 import "./globals.css";
 
@@ -14,7 +15,8 @@ export const metadata: Metadata = {
   description: "A multi-vendor marketplace where independent sellers and buyers meet.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection();
   return (
     <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning className={`${sora.variable} h-full antialiased`}>
       <body className="min-h-full"><ToastProvider>{children}</ToastProvider></body>
