@@ -85,6 +85,16 @@ Only customers with a delivered order can review that product, and MongoDB enfor
 4. Generate the client with `npx prisma generate`.
 5. Start the app with `npm run dev` and open <http://localhost:3000>.
 
+Run `npm run seed` to fetch up to 60 catalog products from [DummyJSON](https://dummyjson.com/docs/products), spread them over three approved demo vendors, create delivered sample orders/reviews, optionally upload images to S3, and reindex Elasticsearch. Use `SEED_PRODUCT_LIMIT` to choose the number of products (up to 1,000 or the number the API returns) and `DUMMYJSON_USD_TO_INR` to change the demonstration price conversion. The seed can run repeatedly without duplicating its imported products, orders, or reviews.
+
+To import a local catalog CSV, first run `npm run seed` or create approved vendors, then run for example:
+
+```powershell
+npm run import:csv -- --products "D:\datasets\olist_products_dataset.csv" --order-items "D:\datasets\olist_order_items_dataset.csv" --source olist --vendors aarav@techhub.demo,diya@urbanthread.demo,kabir@homenest.demo
+```
+
+The CSV importer recognizes common Olist and Flipkart column names, requires an item price in the catalog or an Olist order-items CSV, distributes seller IDs across the selected vendors, and skips product source keys already imported. Olist's historical item prices can supply a demonstration price and sold quantity can estimate stock; set `CSV_SOURCE_TO_INR_RATE` for the source currency. The importer reads the files at their supplied paths and does not copy datasets into the repository. CSV parsing uses the `csv-parse` sync API and is intended for local datasets that fit in memory.
+
 Image storage is optional. Without the `S3_*` variables, vendors can create and edit text-only listings. To enable uploads, set `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`. Set `S3_ENDPOINT` for compatible providers and `S3_FORCE_PATH_STYLE=true` when required. Configure the bucket CORS policy to allow browser `POST` uploads from the app's origins and allow the `Content-Type` header. The bucket should remain private; product reads use a short-lived signed URL.
 
 ### Local optional services
@@ -122,6 +132,10 @@ Cloudflare R2 is one S3-compatible hosted option. Its current standard-storage f
 | `RAZORPAY_WEBHOOK_SECRET` | No | Secret configured for Razorpay webhook signature verification |
 | `PAYMENT_PENDING_TTL_MINUTES` | No | How long a pending Razorpay payment reserves stock; defaults to 30 minutes |
 | `CRON_SECRET` | When using Razorpay | Bearer token protecting the pending-payment expiry endpoint |
+| `DUMMYJSON_USD_TO_INR` | No | Display price conversion for sample products; defaults to 83.5 |
+| `SEED_PRODUCT_LIMIT` | No | Maximum DummyJSON products imported by the seed script; defaults to 60 |
+| `CSV_SOURCE_TO_INR_RATE` | No | Optional multiplier for imported CSV prices; defaults to 1 |
+| `CSV_IMPORT_DEFAULT_STOCK` | No | Fallback stock for CSV rows without stock or sales quantities; defaults to 10 |
 
 Never commit `.env` files or production credentials.
 

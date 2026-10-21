@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
@@ -90,4 +90,23 @@ export async function deleteProductImage(key: string) {
   const storage = config();
   if (!storage || !imageKeySchema.safeParse(key).success) return;
   await storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: key }));
+}
+
+export async function uploadSeedProductImage(vendorId: string, sourceUrl: string) {
+  const storage = config();
+  if (!storage) return null;
+  let url: URL;
+  try { url = new URL(sourceUrl); } catch { return null; }
+  if (url.protocol !== "https:" || url.hostname !== "cdn.dummyjson.com") return null;
+  const response = await fetch(url, { signal: AbortSignal.timeout(8_000), redirect: "error" });
+  if (!response.ok) return null;
+  const contentType = response.headers.get("content-type")?.split(";")[0] ?? "";
+  if (!(contentType in productImageTypes)) return null;
+  const length = Number(response.headers.get("content-length") ?? 0);
+  if (length > MAX_PRODUCT_IMAGE_BYTES) return null;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length < 1 || bytes.length > MAX_PRODUCT_IMAGE_BYTES || !matchesImageSignature(bytes, contentType)) return null;
+  const key = `products/${vendorId}/${crypto.randomUUID()}.${productImageTypes[contentType as keyof typeof productImageTypes]}`;
+  await storage.client.send(new PutObjectCommand({ Bucket: storage.bucket, Key: key, Body: bytes, ContentType: contentType }));
+  return key;
 }
