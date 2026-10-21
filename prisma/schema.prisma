@@ -22,6 +22,20 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum PaymentProvider {
+  SIMULATED
+  RAZORPAY
+}
+
+enum PaymentStatus {
+  PENDING
+  CAPTURED
+  FAILED
+  REFUND_PENDING
+  REFUNDED
+  CANCELLED
+}
+
 model User {
   id        String   @id @default(cuid())
   name      String
@@ -79,9 +93,29 @@ model Order {
   customer User        @relation(fields: [customerId], references: [id])
   items    OrderItem[]
   statusHistory OrderStatusHistory[]
+  payment Payment?
 
   @@unique([customerId, idempotencyKey])
   @@index([customerId, createdAt])
+}
+
+model Payment {
+  id               String          @id @default(cuid())
+  orderId          String          @unique
+  provider         PaymentProvider
+  status           PaymentStatus   @default(PENDING)
+  amount           Decimal         @db.Decimal(10, 2)
+  currency         String          @default("INR")
+  gatewayOrderId   String?         @unique
+  gatewayPaymentId String?         @unique
+  gatewayRefundId  String?         @unique
+  failureReason    String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([provider, status, createdAt])
 }
 
 model OrderStatusHistory {

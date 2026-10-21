@@ -19,7 +19,7 @@ export default async function CheckoutPage() {
         <Link href="/" className="btn btn-secondary mt-5">Return to the shop</Link>
       </div> : <>
         <PageHeader title="Checkout" description="Review your items and shipping details." />
-        <CheckoutForm customerName={session.user.name ?? ""} />
+        <CheckoutForm customerName={session.user.name ?? ""} paymentProvider={process.env.PAYMENT_PROVIDER === "razorpay" ? "razorpay" : "simulated"} />
       </>}
     </main>
     <SiteFooter />

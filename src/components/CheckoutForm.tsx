@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearCart, useCart } from "@/lib/cart";
@@ -8,11 +8,36 @@ import { formatPrice } from "@/lib/format";
 import { placeOrder, type CheckoutState } from "@/app/checkout/actions";
 import { showToast } from "@/lib/toast";
 
-export default function CheckoutForm({ customerName }: { customerName: string }) {
+type RazorpayResult = { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
+type RazorpayOptions = {
+  key: string; amount: number; currency: string; name: string; description: string; order_id: string;
+  handler: (result: RazorpayResult) => void | Promise<void>;
+  retry: false;
+  modal: { ondismiss: () => void };
+  prefill: { name: string };
+  theme: { color: string };
+};
+declare global { interface Window { Razorpay?: new (options: RazorpayOptions) => { open: () => void; on: (event: string, callback: (result: unknown) => void) => void } } }
+
+function loadRazorpay() {
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+    if (existing) { existing.addEventListener("load", () => resolve(true), { once: true }); existing.addEventListener("error", () => resolve(false), { once: true }); return; }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
+export default function CheckoutForm({ customerName, paymentProvider }: { customerName: string; paymentProvider: "simulated" | "razorpay" }) {
   const router = useRouter();
   const { items, total, ready } = useCart();
   const [state, action, pending] = useActionState<CheckoutState, FormData>(placeOrder, {});
   const [idempotencyKey, setIdempotencyKey] = useState("");
+  const activeGatewayOrder = useRef<string | null>(null);
   const cartSignature = items.map((item) => `${item.id}:${item.qty}`).sort().join("|");
 
   useEffect(() => {
@@ -40,6 +65,50 @@ export default function CheckoutForm({ customerName }: { customerName: string })
     void clearCart();
     router.push(`/orders/${state.orderId}`);
   }, [router, state.orderId]);
+
+  useEffect(() => {
+    const payment = state.payment;
+    if (!payment || activeGatewayOrder.current === payment.gatewayOrderId) return;
+    let disposed = false;
+    activeGatewayOrder.current = payment.gatewayOrderId;
+    void (async () => {
+      const loaded = await loadRazorpay();
+      if (disposed) return;
+      if (!loaded || !window.Razorpay) {
+        activeGatewayOrder.current = null;
+        showToast("Razorpay checkout could not load. Check your connection and try again.", "error");
+        return;
+      }
+      const checkout = new window.Razorpay({
+        key: payment.keyId,
+        amount: payment.amount,
+        currency: payment.currency,
+        name: "Nexvia Market",
+        description: "Marketplace order",
+        order_id: payment.gatewayOrderId,
+        retry: false,
+        prefill: { name: customerName },
+        theme: { color: "#2563eb" },
+        handler: async (result) => {
+          try {
+            const response = await fetch("/api/payments/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result) });
+            const body = await response.json() as { orderId?: string; error?: string };
+            if (!response.ok || !body.orderId) throw new Error(body.error ?? "Payment could not be verified yet.");
+            try { sessionStorage.removeItem("nexvia-checkout-idempotency"); } catch { /* Session storage is optional. */ }
+            await clearCart();
+            router.push(`/orders/${body.orderId}`);
+          } catch (error) {
+            activeGatewayOrder.current = null;
+            showToast(error instanceof Error ? error.message : "Payment could not be verified. Check your orders in a moment.", "error");
+          }
+        },
+        modal: { ondismiss: () => { activeGatewayOrder.current = null; showToast("Payment was not completed. You can retry checkout.", "error"); } },
+      });
+      checkout.on("payment.failed", () => showToast("Payment failed. You can retry checkout.", "error"));
+      checkout.open();
+    })();
+    return () => { disposed = true; };
+  }, [customerName, router, state.payment]);
 
   useEffect(() => {
     if (state.error) showToast(state.error, "error");
@@ -74,7 +143,7 @@ export default function CheckoutForm({ customerName }: { customerName: string })
         {items.map((item) => <li key={item.id} className="flex justify-between gap-3 text-sm"><span className="min-w-0 truncate text-[var(--muted)]">{item.title} × {item.qty}</span><span className="nums whitespace-nowrap">{formatPrice(item.price * item.qty)}</span></li>)}
       </ul>
       <p className="mt-4 flex justify-between font-bold"><span>Total</span><span className="nums">{formatPrice(total)}</span></p>
-      <p className="mt-3 text-xs text-[var(--muted)]">Payment is simulated for this order. Prices and stock are checked again before it is placed.</p>
+      <p className="mt-3 text-xs text-[var(--muted)]">{paymentProvider === "razorpay" ? "Razorpay test mode is active. Prices and stock are checked again before payment." : "Payment is simulated for this order. Prices and stock are checked again before it is placed."}</p>
       {state.error && <p className="mt-4 rounded-lg border border-[var(--danger)] px-3 py-2 text-sm text-[var(--danger)]" role="alert">{state.error}</p>}
       <button className="btn btn-primary mt-5 w-full" disabled={pending || !idempotencyKey}>{pending ? "Placing order…" : "Pay and place order"}</button>
     </aside>

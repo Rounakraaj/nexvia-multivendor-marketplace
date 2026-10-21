@@ -8,6 +8,7 @@ import { paiseToDecimal, splitCommission, toPaise } from "@/lib/money";
 import { syncProductSearchDocument } from "@/lib/search";
 import { clientIp, rateLimit } from "@/lib/redis";
 import { clearSignedInCart, readSignedInCart } from "@/lib/cart-server";
+import { createGatewayOrder, markPaymentFailed, paymentMode, publicRazorpayKey, type PaymentMode } from "@/lib/payments";
 
 const cartSchema = z.array(z.object({
   productId: z.string().min(1),
@@ -23,7 +24,7 @@ const addressSchema = z.object({
 });
 const idempotencySchema = z.string().uuid();
 
-export type CheckoutState = { error?: string; orderId?: string };
+export type CheckoutState = { error?: string; orderId?: string; payment?: { provider: "razorpay"; orderId: string; gatewayOrderId: string; amount: number; currency: "INR"; keyId: string } };
 
 class OrderError extends Error {}
 
@@ -32,8 +33,14 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
   const idempotency = idempotencySchema.safeParse(formData.get("idempotencyKey"));
   if (!idempotency.success) return { error: "Refresh checkout and try again." };
   const idempotencyKey = idempotency.data;
-  const existingOrder = await db.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true } });
-  if (existingOrder) return { orderId: existingOrder.id };
+  const existingOrder = await db.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, include: { payment: true } });
+  if (existingOrder) {
+    if (existingOrder.payment?.provider === "RAZORPAY" && existingOrder.payment.status === "PENDING" && existingOrder.payment.gatewayOrderId) {
+      return { payment: { provider: "razorpay", orderId: existingOrder.id, gatewayOrderId: existingOrder.payment.gatewayOrderId, amount: toPaise(existingOrder.payment.amount.toString()), currency: "INR", keyId: publicRazorpayKey() } };
+    }
+    if (existingOrder.status === "PAID") return { orderId: existingOrder.id };
+    return { error: "This payment attempt is already being prepared. Refresh checkout and try again." };
+  }
 
   const requestHeaders = await headers();
   const ip = clientIp(requestHeaders.get("x-forwarded-for"));
@@ -70,14 +77,15 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
   const lines = [...quantities].map(([productId, qty]) => ({ productId, qty }));
 
   try {
+    const mode: PaymentMode = paymentMode();
+    if (mode === "razorpay" && !publicRazorpayKey()) return { error: "Razorpay is selected but its test credentials are not configured." };
     const setting = await db.setting.upsert({ where: { id: 1 }, update: {}, create: { id: 1, commissionRate: 10 } });
     const rate = setting.commissionRate;
     if (rate < 0 || rate > 50 || !Number.isInteger(rate * 2)) return { error: "The marketplace commission setting is invalid. Please contact support." };
 
-    // Integrate Razorpay or Stripe test-mode authorization here before creating the PAID order.
-    const orderId = await db.$transaction(async (tx) => {
+    const created = await db.$transaction(async (tx) => {
       const duplicate = await tx.order.findUnique({ where: { customerId_idempotencyKey: { customerId: session.user.id, idempotencyKey } }, select: { id: true } });
-      if (duplicate) return duplicate.id;
+      if (duplicate) return { id: duplicate.id, totalPaise: 0, created: false };
       const products = await tx.product.findMany({
         where: { id: { in: lines.map((line) => line.productId) } },
         include: { vendor: { select: { id: true, shopName: true, approved: true } } },
@@ -117,7 +125,7 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
         data: {
           customerId: session.user.id,
           total: paiseToDecimal(totalPaise),
-          status: "PAID",
+          status: mode === "simulated" ? "PAID" : "PENDING",
           shippingName: addressResult.data.name,
           shippingPhone: addressResult.data.phone,
           shippingAddress: `${addressResult.data.addressLine}, ${addressResult.data.city}, ${addressResult.data.pinCode}`,
@@ -132,23 +140,45 @@ export async function placeOrder(_previous: CheckoutState, formData: FormData): 
               vendorEarning: paiseToDecimal(line.vendorEarningPaise),
             })),
           },
-          statusHistory: { create: { status: "PAID", note: "Payment confirmed." } },
+          statusHistory: { create: { status: mode === "simulated" ? "PAID" : "PENDING", note: mode === "simulated" ? "Payment confirmed." : "Awaiting payment confirmation." } },
+          payment: { create: { provider: mode === "simulated" ? "SIMULATED" : "RAZORPAY", status: mode === "simulated" ? "CAPTURED" : "PENDING", amount: paiseToDecimal(totalPaise), currency: "INR" } },
         },
         select: { id: true },
       });
 
-      const earningsByVendor = new Map<string, number>();
-      for (const line of pricedLines) earningsByVendor.set(line.product.vendorId, (earningsByVendor.get(line.product.vendorId) ?? 0) + line.vendorEarningPaise);
-      for (const [vendorId, earningPaise] of earningsByVendor) {
-        await tx.vendor.update({ where: { id: vendorId }, data: { balance: { increment: paiseToDecimal(earningPaise) } } });
+      if (mode === "simulated") {
+        const earningsByVendor = new Map<string, number>();
+        for (const line of pricedLines) earningsByVendor.set(line.product.vendorId, (earningsByVendor.get(line.product.vendorId) ?? 0) + line.vendorEarningPaise);
+        for (const [vendorId, earningPaise] of earningsByVendor) {
+          await tx.vendor.update({ where: { id: vendorId }, data: { balance: { increment: paiseToDecimal(earningPaise) } } });
+        }
       }
-      return order.id;
+      return { id: order.id, totalPaise, created: true };
     });
 
-    await clearSignedInCart(session.user.id);
     await Promise.all(lines.map((line) => syncProductSearchDocument(line.productId)));
-
-    return { orderId };
+    if (!created.created) {
+      const prior = await db.order.findUnique({ where: { id: created.id }, include: { payment: true } });
+      if (prior?.status === "PAID") return { orderId: prior.id };
+      if (prior?.payment?.provider === "RAZORPAY" && prior.payment.gatewayOrderId) {
+        return { payment: { provider: "razorpay", orderId: prior.id, gatewayOrderId: prior.payment.gatewayOrderId, amount: toPaise(prior.payment.amount.toString()), currency: "INR", keyId: publicRazorpayKey() } };
+      }
+      return { error: "Payment setup is still in progress. Refresh checkout in a moment." };
+    }
+    if (mode === "simulated") {
+      await clearSignedInCart(session.user.id);
+      return { orderId: created.id };
+    }
+    try {
+      const gatewayOrderId = await createGatewayOrder(created.id, created.totalPaise);
+      await db.payment.update({ where: { orderId: created.id }, data: { gatewayOrderId } });
+      return { payment: { provider: "razorpay", orderId: created.id, gatewayOrderId, amount: created.totalPaise, currency: "INR", keyId: publicRazorpayKey() } };
+    } catch {
+      const productsToSync = await db.orderItem.findMany({ where: { orderId: created.id }, select: { productId: true } });
+      await markPaymentFailed(created.id, "Could not initialize the Razorpay test payment.");
+      await Promise.all(productsToSync.map(({ productId }) => syncProductSearchDocument(productId)));
+      return { error: "The payment provider could not start checkout. Your reserved stock has been released; try again." };
+    }
   } catch (error) {
     if (error instanceof OrderError) return { error: error.message };
     if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {

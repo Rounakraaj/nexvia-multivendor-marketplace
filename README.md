@@ -7,6 +7,7 @@ A multi-vendor marketplace built with Next.js 16, React 19, TypeScript, Tailwind
 - Customer, vendor, and admin accounts with server-side role and ownership checks.
 - Vendor product management, admin vendor approval, checkout, shipping details, order history, and a guarded paid → packed → shipped → delivered lifecycle. Admin cancellation restores stock and reverses seller earnings in one transaction.
 - Order status history with actor and timestamp, shown in customer, vendor, and admin order views.
+- Simulated payments by default, with an optional Razorpay test-mode checkout, server-side signature checks, signed webhooks, pending-payment expiry, and recorded refunds.
 - Commission and seller earnings stored as integer-paise-derived PostgreSQL values.
 - Optional S3-compatible product image uploads. Uploads use a short-lived presigned form, enforce JPEG/PNG/WebP and a 2 MB limit, and store object keys on `Product.image`.
 - Optional typo-tolerant Elasticsearch search, filters, sorting, paging, and header autocomplete; PostgreSQL search remains the fallback.
@@ -34,7 +35,7 @@ PostgreSQL remains the source of truth for products, stock, orders, and the ledg
 
 | Store | Data |
 | --- | --- |
-| PostgreSQL | Users and roles; vendors and balances; products, stock, and rating aggregates; orders with per-customer idempotency keys, order items, shipping data, status history, and commission ledger values; marketplace settings |
+| PostgreSQL | Users and roles; vendors and balances; products, stock, and rating aggregates; orders with per-customer idempotency keys, order items, shipping data, status history, payments, and commission ledger values; marketplace settings |
 | Elasticsearch | Rebuildable search documents for approved products, including title suggestions, category, price, stock, vendor, rating, and creation time |
 | MongoDB | Optional zero-result search events only in this phase; later review and coupon documents are planned |
 | S3-compatible object storage | Private product image objects; PostgreSQL stores the object key |
@@ -58,10 +59,17 @@ Elasticsearch is derived data and can be reconstructed with `npm run reindex`. P
 | `GET /api/product-images?key=…` | Redirect to a short-lived URL for an approved product image |
 | `GET /api/search/suggest?q=…` | Header autocomplete suggestions |
 | `/api/cart` | Authenticated cart sync; Redis-backed when available, local-storage fallback otherwise |
+| `POST /api/payments/verify` | Verify Razorpay checkout signature and captured payment against the stored gateway order |
+| `POST /api/payments/webhook` | Verify Razorpay HMAC webhook and process captured/failed events idempotently |
+| `POST /api/payments/expire` | Secret-protected expiry job for abandoned Razorpay orders; releases reserved stock |
 
 ### Order lifecycle
 
 New checkouts start as `PAID`. A vendor can mark an order packed and then shipped only when every item belongs to that vendor. The admin can advance mixed-vendor orders and mark shipped orders delivered. The admin can cancel pending or undelivered orders; the transaction restores product stock, reverses vendor balance credits, and appends a status history event. Every transition checks the current state in the database to reject stale or repeated updates.
+
+### Payments
+
+`PAYMENT_PROVIDER=simulated` is the default and records a simulated captured payment. For Razorpay test mode, set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` using test-mode values from the Razorpay dashboard. The server creates a Razorpay order from the database-priced cart, reserves inventory, and records the marketplace order as `PENDING`. It marks the order `PAID` and credits seller balances only after verifying the stored Razorpay order ID, checkout HMAC, and captured status. Configure the Razorpay webhook URL as `/api/payments/webhook` for `payment.captured` and `payment.failed` events. Schedule `POST /api/payments/expire` with `Authorization: Bearer $CRON_SECRET` at least every 10 minutes; the default pending-payment lifetime is 30 minutes and can be changed with `PAYMENT_PENDING_TTL_MINUTES`. Admin cancellation requests a Razorpay refund before releasing stock and reversing seller earnings. Keep gateway secrets server-side and use test keys until end-to-end test payments pass.
 
 ## Local setup
 
@@ -103,6 +111,11 @@ Cloudflare R2 is one S3-compatible hosted option. Its current standard-storage f
 | `MONGODB_URI` | No | MongoDB connection string for analytics |
 | `MONGODB_DATABASE` | No | Mongo database name; defaults to `nexvia` |
 | `REDIS_URL` | No | Redis connection URL; empty enables local cart and cache fallbacks |
+| `PAYMENT_PROVIDER` | No | `simulated` by default, or `razorpay` for test-mode Checkout |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | No | Razorpay test-mode API credentials |
+| `RAZORPAY_WEBHOOK_SECRET` | No | Secret configured for Razorpay webhook signature verification |
+| `PAYMENT_PENDING_TTL_MINUTES` | No | How long a pending Razorpay payment reserves stock; defaults to 30 minutes |
+| `CRON_SECRET` | When using Razorpay | Bearer token protecting the pending-payment expiry endpoint |
 
 Never commit `.env` files or production credentials.
 
@@ -115,13 +128,17 @@ Session lookups are not cached. Roles and account state should reflect the curre
 - `npm run build` — production build; database-backed routes need request-time rendering and a reachable PostgreSQL database at runtime.
 - `npm run verify` — checks order totals and vendor balances against the PostgreSQL ledger; requires a reachable configured database.
 - `npm run test:idempotency` — verifies the database unique constraint inside a transaction that rolls back its temporary test order.
+- `npm run test:order-lifecycle` — checks allowed order status transitions.
+- `npm run test:payment-signatures` — checks valid and tampered checkout and webhook signatures.
 - `npx tsx scripts/test-commission.ts` — commission rounding checks.
 - `npm run reindex` — rebuild Elasticsearch from approved PostgreSQL products; prints `SKIP` if Elasticsearch is not configured.
 
-## Dependencies added for image storage
+## Key runtime integrations
 
 - `@aws-sdk/client-s3`: S3-compatible object operations.
 - `@aws-sdk/s3-request-presigner`: short-lived signed image reads.
 - `@aws-sdk/s3-presigned-post`: upload policy with server-enforced content-type and 2 MB size constraints.
 - `@elastic/elasticsearch`: typed Elasticsearch index/search client.
 - `mongodb`: MongoDB driver for optional analytics events.
+- `redis`: Redis client for optional signed-in carts, caches, and rate limits.
+- Razorpay uses the server's built-in Fetch and Node.js crypto APIs; no gateway secret or Razorpay SDK is shipped to the browser.
