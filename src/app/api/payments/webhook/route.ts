@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { markPaymentCaptured, markPaymentFailed, refundGatewayPayment, verifyWebhookSignature } from "@/lib/payments";
 import { db } from "@/lib/db";
 import { toPaise } from "@/lib/money";
+import { callApiService } from "@/lib/api-service-auth";
 
 type RazorpayEvent = {
   event?: string;
@@ -14,6 +15,8 @@ export async function POST(request: Request) {
   if (!signature || !verifyWebhookSignature(rawBody, signature)) return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 });
   let event: RazorpayEvent;
   try { event = JSON.parse(rawBody) as RazorpayEvent; } catch { return NextResponse.json({ error: "Invalid webhook payload." }, { status: 400 }); }
+  const serviceResponse = await callApiService("/v1/payments/webhook", { sub: "razorpay", role: "SYSTEM" }, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) });
+  if (serviceResponse) return new Response(await serviceResponse.text(), { status: serviceResponse.status, headers: { "content-type": serviceResponse.headers.get("content-type") ?? "application/json" } });
   const paymentEntity = event.payload?.payment?.entity;
   if (!paymentEntity?.order_id) return NextResponse.json({ received: true });
   const payment = await db.payment.findUnique({ where: { gatewayOrderId: paymentEntity.order_id }, select: { orderId: true } });

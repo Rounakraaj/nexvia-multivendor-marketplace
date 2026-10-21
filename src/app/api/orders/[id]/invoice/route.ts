@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
+import { callApiService } from "@/lib/api-service-auth";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const session = await getServerSession(authOptions);
   if (!session || !["CUSTOMER", "ADMIN"].includes(session.user.role)) return NextResponse.json({ error: "Sign-in required." }, { status: 401 });
   const { id } = await params;
+  const serviceResponse = await callApiService(`/v1/orders/${encodeURIComponent(id)}/invoice`, { sub: session.user.id, role: session.user.role });
+  if (serviceResponse) return new Response(await serviceResponse.arrayBuffer(), { status: serviceResponse.status, headers: { "content-type": serviceResponse.headers.get("content-type") ?? "application/pdf", "content-disposition": serviceResponse.headers.get("content-disposition") ?? "attachment", "cache-control": "private, no-store" } });
   const order = await db.order.findFirst({
     where: { id, ...(session.user.role === "CUSTOMER" ? { customerId: session.user.id } : {}) },
     include: { customer: { select: { name: true, email: true } }, items: { include: { product: { select: { title: true } }, vendor: { select: { shopName: true } } } }, payment: true },

@@ -163,3 +163,9 @@ Session lookups are not cached. Roles and account state should reflect the curre
 - `mongodb`: MongoDB driver for optional analytics events.
 - `redis`: Redis client for optional signed-in carts, caches, and rate limits.
 - Razorpay uses the server's built-in Fetch and Node.js crypto APIs; no gateway secret or Razorpay SDK is shipped to the browser.
+
+## Optional API service
+
+The Fastify API service extracts Razorpay webhook processing, order invoice generation, and admin analytics into `services/api`. It connects to the same PostgreSQL database as Next.js. Copy `SERVICE_API_SECRET` into both processes and set `API_SERVICE_URL=http://127.0.0.1:4100` in the Next.js environment to enable service routing. If the service is not configured or reachable, Next.js uses its local handlers.
+
+Run locally with `npm run service:api` alongside `npm run dev`. The service exposes `/health`; protected routes require short-lived HS256 service tokens minted by the web app. For Docker, set `DATABASE_URL` and `SERVICE_API_SECRET` in `.env`, then run `docker compose up --build api`. Do not expose port 4100 publicly; place the service behind a private network and configure the web app URL accordingly.

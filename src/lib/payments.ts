@@ -1,4 +1,3 @@
-import "server-only";
 import { db } from "@/lib/db";
 import { paiseToDecimal, toPaise } from "@/lib/money";
 import { syncProductSearchDocument } from "@/lib/search";

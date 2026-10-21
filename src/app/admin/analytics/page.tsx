@@ -3,10 +3,20 @@ import SalesChart from "@/components/SalesChart";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
 import { getRecentActivity, getZeroResultQueryStats } from "@/lib/mongo";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { callApiService } from "@/lib/api-service-auth";
 
 const paidStatuses = ["PAID", "PACKED", "SHIPPED", "DELIVERED"] as const;
 
 export default async function AdminAnalyticsPage() {
+  const session = await getServerSession(authOptions);
+  const serviceRequest = session?.user.role === "ADMIN"
+    ? await callApiService("/v1/admin/analytics", { sub: session.user.id, role: session.user.role })
+    : null;
+  const serviceSnapshot = serviceRequest?.ok
+    ? await serviceRequest.json() as { grossSales?: number; paidOrders?: number; commission?: number }
+    : null;
   const [orders, lowStock, zeroQueries, activity] = await Promise.all([
     db.order.findMany({
       where: { status: { in: [...paidStatuses] } },
@@ -17,8 +27,8 @@ export default async function AdminAnalyticsPage() {
     getZeroResultQueryStats(30, 10),
     getRecentActivity(20),
   ]);
-  const gross = orders.reduce((sum, order) => sum + Number(order.subtotal), 0);
-  const commission = orders.reduce((sum, order) => sum + order.items.reduce((inner, item) => inner + Number(item.commission), 0), 0);
+  const gross = serviceSnapshot?.grossSales ?? orders.reduce((sum, order) => sum + Number(order.subtotal), 0);
+  const commission = serviceSnapshot?.commission ?? orders.reduce((sum, order) => sum + order.items.reduce((inner, item) => inner + Number(item.commission), 0), 0);
   const platformDiscount = orders.filter((order) => order.couponFunding === "PLATFORM").reduce((sum, order) => sum + Number(order.discountTotal), 0);
   const platformRevenue = commission - platformDiscount;
   const takeRate = gross > 0 ? platformRevenue / gross * 100 : 0;
@@ -48,7 +58,7 @@ export default async function AdminAnalyticsPage() {
   }
   const topVendors = [...vendors.values()].sort((a, b) => b.sales - a.sales).slice(0, 8);
   const topCategories = [...categories.entries()].sort((a, b) => b[1].sales - a[1].sales).slice(0, 8);
-  const stats = [["Gross sales", formatPrice(gross)], ["Paid orders", String(orders.length)], ["Net platform revenue", formatPrice(platformRevenue)], ["Take rate", `${takeRate.toFixed(2)}%`]];
+  const stats = [["Gross sales", formatPrice(gross)], ["Paid orders", String(serviceSnapshot?.paidOrders ?? orders.length)], ["Net platform revenue", formatPrice(platformRevenue)], ["Take rate", `${takeRate.toFixed(2)}%`]];
 
   return <>
     <PageHeader title="Marketplace analytics" description="Sales, platform revenue, inventory pressure, and catalog search demand." />

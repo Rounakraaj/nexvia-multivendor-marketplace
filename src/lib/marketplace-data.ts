@@ -1,4 +1,3 @@
-import "server-only";
 import { ObjectId, type Document } from "mongodb";
 import { getMongoCollection } from "@/lib/mongo";
 
