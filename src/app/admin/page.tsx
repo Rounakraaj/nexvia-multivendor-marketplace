@@ -1,77 +1,91 @@
 ﻿import { db } from "@/lib/db";
-import SignOutButton from "@/components/SignOutButton";
-import { setVendorApproval } from "./actions";
+import PageHeader from "@/components/PageHeader";
+import AdminVendorApprovalForm from "@/components/AdminVendorApprovalForm";
 
 export default async function AdminHome() {
-  const [users, vendors] = await Promise.all([
+  const [users, products, vendors] = await Promise.all([
     db.user.count(),
+    db.product.count(),
     db.vendor.findMany({ include: { user: true }, orderBy: { createdAt: "desc" } }),
   ]);
   const pending = vendors.filter((v) => !v.approved).length;
 
+  const stats: [string, number][] = [
+    ["Users", users],
+    ["Vendors", vendors.length],
+    ["Awaiting approval", pending],
+    ["Products listed", products],
+  ];
+
   return (
-    <main className="mx-auto max-w-5xl p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-amber-500">Admin panel</p>
-          <h1 className="text-3xl font-bold text-slate-900">Platform overview</h1>
-        </div>
-        <SignOutButton />
-      </div>
+    <>
+      <PageHeader title="Vendor approvals" description="Review new shops before they list products." />
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl bg-indigo-50 p-6">
-          <p className="text-sm text-indigo-600">Total users</p>
-          <p className="text-4xl font-bold text-indigo-900">{users}</p>
-        </div>
-        <div className="rounded-2xl bg-emerald-50 p-6">
-          <p className="text-sm text-emerald-600">Vendors</p>
-          <p className="text-4xl font-bold text-emerald-900">{vendors.length}</p>
-        </div>
-        <div className="rounded-2xl bg-amber-50 p-6">
-          <p className="text-sm text-amber-600">Awaiting approval</p>
-          <p className="text-4xl font-bold text-amber-900">{pending}</p>
-        </div>
+      <section aria-labelledby="approval-heading">
+      <h2 id="approval-heading" className="sr-only">Vendors waiting for approval</h2>
+      <div className="panel overflow-x-auto">
+        <table className="tbl">
+          <thead><tr><th>Shop</th><th>Owner</th><th>Joined</th><th className="text-right">Action</th></tr></thead>
+          <tbody>
+            {vendors.filter((v) => !v.approved).length === 0 && <tr><td colSpan={4} className="py-10 text-center text-[var(--muted)]">No vendors are waiting. <a href="#all-vendors" className="tap-target inline-flex items-center underline underline-offset-4 hover:text-[var(--text)]">Review all vendors</a></td></tr>}
+            {vendors.filter((v) => !v.approved).map((v) => <tr key={v.id}>
+              <td className="font-semibold">{v.shopName}</td><td>{v.user.email}</td><td>{v.createdAt.toLocaleDateString("en-IN")}</td>
+              <td className="text-right"><AdminVendorApprovalForm vendorId={v.id} approved={false} /></td>
+            </tr>)}
+          </tbody>
+        </table>
       </div>
+      </section>
 
-      <h2 className="mt-10 text-xl font-bold text-slate-900">Vendors</h2>
-      <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500">
+      <section aria-labelledby="platform-overview" className="mt-10">
+      <h2 id="platform-overview" className="mb-4 text-xl font-bold">Platform overview</h2>
+      <div className="panel grid divide-y divide-[var(--line)] sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+        {stats.map(([label, value]) => (
+          <div key={label} className="p-5">
+            <p className="text-sm text-[var(--muted)]">{label}</p>
+            <p className="nums mt-2 text-3xl font-extrabold">{value}</p>
+          </div>
+        ))}
+      </div>
+      </section>
+      <h2 id="all-vendors" className="mb-4 mt-10 text-xl font-bold">All vendors</h2>
+      <div className="panel overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="px-4 py-3">Shop</th>
-              <th className="px-4 py-3">Owner</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Action</th>
+              <th>Shop</th>
+              <th>Owner</th>
+              <th>Joined</th>
+              <th>Status</th>
+              <th className="text-right">Action</th>
             </tr>
           </thead>
           <tbody>
             {vendors.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">No vendors yet.</td></tr>
+              <tr>
+                <td colSpan={5} className="py-10 text-center text-[var(--muted)]">
+                  No vendors yet. New shops appear here for approval.
+                </td>
+              </tr>
             )}
             {vendors.map((v) => (
-              <tr key={v.id} className="border-t border-slate-100">
-                <td className="px-4 py-3 font-medium text-slate-900">{v.shopName}</td>
-                <td className="px-4 py-3 text-slate-600">{v.user.email}</td>
-                <td className="px-4 py-3">
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${v.approved ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+              <tr key={v.id}>
+                <td className="font-semibold">{v.shopName}</td>
+                <td>{v.user.email}</td>
+                <td>{v.createdAt.toLocaleDateString("en-IN")}</td>
+                <td>
+                  <span className={`badge ${v.approved ? "badge-ok" : "badge-warn"}`}>
                     {v.approved ? "Approved" : "Pending"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right">
-                  <form action={setVendorApproval}>
-                    <input type="hidden" name="vendorId" value={v.id} />
-                    <input type="hidden" name="approved" value={String(!v.approved)} />
-                    <button className={`rounded-lg px-4 py-2 text-xs font-semibold text-white ${v.approved ? "bg-slate-500 hover:bg-slate-600" : "bg-indigo-600 hover:bg-indigo-700"}`}>
-                      {v.approved ? "Suspend" : "Approve"}
-                    </button>
-                  </form>
+                <td className="text-right">
+                  {v.approved ? <AdminVendorApprovalForm vendorId={v.id} approved /> : <span className="text-sm text-[var(--muted)]">Waiting in queue</span>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </main>
+    </>
   );
 }

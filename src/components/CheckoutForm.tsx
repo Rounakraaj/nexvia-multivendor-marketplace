@@ -1,0 +1,57 @@
+"use client";
+
+import { useActionState, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { clearCart, useCart } from "@/lib/cart";
+import { formatPrice } from "@/lib/format";
+import { placeOrder, type CheckoutState } from "@/app/checkout/actions";
+import { showToast } from "@/lib/toast";
+
+export default function CheckoutForm({ customerName }: { customerName: string }) {
+  const router = useRouter();
+  const { items, total } = useCart();
+  const [state, action, pending] = useActionState<CheckoutState, FormData>(placeOrder, {});
+
+  useEffect(() => {
+    if (!state.orderId) return;
+    clearCart();
+    router.push(`/orders/${state.orderId}`);
+  }, [router, state.orderId]);
+
+  useEffect(() => {
+    if (state.error) showToast(state.error, "error");
+  }, [state.error]);
+
+  if (items.length === 0) {
+    return <div className="panel p-10 text-center">
+      <h2 className="text-lg font-bold">Your cart is empty</h2>
+      <p className="mt-2 text-[var(--muted)]">Add a product before checking out.</p>
+      <Link href="/" className="btn btn-primary mt-5">Find products</Link>
+    </div>;
+  }
+
+  return <form action={action} className="grid items-start gap-6 lg:grid-cols-[1fr_360px]">
+    <div className="panel space-y-5 p-5 sm:p-6">
+      <h2 className="text-lg font-bold">Shipping details</h2>
+      <input type="hidden" name="items" value={JSON.stringify(items.map(({ id, qty }) => ({ productId: id, qty })))} />
+      <div><label className="label" htmlFor="name">Recipient name</label><input className="field" id="name" name="name" required minLength={2} maxLength={100} defaultValue={customerName} autoComplete="name" /></div>
+      <div><label className="label" htmlFor="phone">Phone</label><input className="field" id="phone" name="phone" type="tel" required minLength={8} maxLength={20} autoComplete="tel" placeholder="98765 43210" /></div>
+      <div><label className="label" htmlFor="addressLine">Address line</label><textarea className="field" id="addressLine" name="addressLine" required minLength={5} maxLength={200} rows={3} autoComplete="street-address" /></div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div><label className="label" htmlFor="city">City</label><input className="field" id="city" name="city" required minLength={2} maxLength={100} autoComplete="address-level2" /></div>
+        <div><label className="label" htmlFor="pinCode">PIN code</label><input className="field" id="pinCode" name="pinCode" inputMode="numeric" pattern="[0-9]{6}" required minLength={6} maxLength={6} autoComplete="postal-code" /></div>
+      </div>
+    </div>
+    <aside className="panel h-fit p-5 lg:sticky lg:top-24">
+      <h2 className="text-lg font-bold">Order summary</h2>
+      <ul className="mt-4 space-y-3 border-b border-[var(--line)] pb-4">
+        {items.map((item) => <li key={item.id} className="flex justify-between gap-3 text-sm"><span className="min-w-0 truncate text-[var(--muted)]">{item.title} × {item.qty}</span><span className="nums whitespace-nowrap">{formatPrice(item.price * item.qty)}</span></li>)}
+      </ul>
+      <p className="mt-4 flex justify-between font-bold"><span>Total</span><span className="nums">{formatPrice(total)}</span></p>
+      <p className="mt-3 text-xs text-[var(--muted)]">Payment is simulated for this order. Prices and stock are checked again before it is placed.</p>
+      {state.error && <p className="mt-4 rounded-lg border border-[var(--danger)] px-3 py-2 text-sm text-[var(--danger)]" role="alert">{state.error}</p>}
+      <button className="btn btn-primary mt-5 w-full" disabled={pending}>{pending ? "Placing order…" : "Pay and place order"}</button>
+    </aside>
+  </form>;
+}

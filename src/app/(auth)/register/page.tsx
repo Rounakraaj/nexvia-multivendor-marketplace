@@ -3,6 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import AuthShell from "@/components/AuthShell";
+import PasswordField from "@/components/PasswordField";
+import { showToast } from "@/lib/toast";
+
+const roles = [
+  ["CUSTOMER", "Buy", "Shop from sellers"],
+  ["VENDOR", "Sell", "Open your own shop"],
+] as const;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -15,65 +23,93 @@ export default function RegisterPage() {
     setError("");
     setLoading(true);
     const f = new FormData(e.currentTarget);
-    const res = await fetch("/api/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: f.get("name"),
-        email: f.get("email"),
-        password: f.get("password"),
-        role,
-        shopName: role === "VENDOR" ? f.get("shopName") : undefined,
-      }),
-    });
-    setLoading(false);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Something went wrong");
-      return;
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: f.get("name"),
+          email: f.get("email"),
+          password: f.get("password"),
+          role,
+          shopName: role === "VENDOR" ? f.get("shopName") : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const message = data.error ?? "Registration failed. Check your details and try again.";
+        setError(message);
+        showToast(message, "error");
+        return;
+      }
+      router.push("/login");
+    } catch {
+      const message = "We could not create your account. Check your connection and try again.";
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setLoading(false);
     }
-    router.push("/login");
   }
 
-  const input =
-    "w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200";
-
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-950 via-indigo-800 to-indigo-600 p-6">
-      <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl">
-        <p className="text-xs font-semibold uppercase tracking-widest text-amber-500">Nexvia Marketplace</p>
-        <h1 className="mt-2 text-3xl font-bold text-slate-900">Create your account</h1>
-
-        <div className="mt-6 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
-          {(["CUSTOMER", "VENDOR"] as const).map((r) => (
-            <button key={r} type="button" onClick={() => setRole(r)}
-              className={`rounded-lg py-2 text-sm font-semibold transition ${
-                role === r ? "bg-white text-indigo-700 shadow" : "text-slate-500"
-              }`}>
-              {r === "CUSTOMER" ? "I want to buy" : "I want to sell"}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
-          <input name="name" required minLength={2} placeholder="Full name" className={input} />
-          <input name="email" type="email" required placeholder="Email" className={input} />
-          <input name="password" type="password" required minLength={8} placeholder="Password (min 8 characters)" className={input} />
-          {role === "VENDOR" && (
-            <input name="shopName" required minLength={2} placeholder="Shop name" className={input} />
-          )}
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button disabled={loading}
-            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60">
-            {loading ? "Creating..." : "Create account"}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-sm text-slate-500">
+    <AuthShell
+      title="Create your account"
+      subtitle="It takes less than a minute."
+      footer={
+        <p>
           Already registered?{" "}
-          <Link href="/login" className="font-semibold text-indigo-600 hover:underline">Sign in</Link>
+          <Link href="/login" className="tap-target inline-flex items-center font-semibold underline underline-offset-4">
+            Sign in
+          </Link>
         </p>
+      }
+    >
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Account type">
+        {roles.map(([r, t, d]) => (
+          <button
+            key={r}
+            type="button"
+            aria-pressed={role === r}
+            onClick={() => setRole(r)}
+            className={`min-h-11 rounded-lg border p-3 text-left ${
+              role === r ? "border-[var(--lime)] bg-[var(--surface-1)]" : "border-[var(--line)] hover:border-[var(--text)]"
+            }`}
+          >
+            <span className="block text-sm font-semibold">{t}</span>
+            <span className="block text-xs text-[var(--muted)]">{d}</span>
+          </button>
+        ))}
       </div>
-    </main>
+
+      <form onSubmit={onSubmit} className="mt-6 space-y-5">
+        <div>
+          <label htmlFor="name" className="label">Full name</label>
+          <input id="name" name="name" required minLength={2} autoComplete="name" className="field" />
+        </div>
+        <div>
+          <label htmlFor="email" className="label">Email</label>
+          <input id="email" name="email" type="email" required autoComplete="email" className="field" />
+        </div>
+        <div>
+          <label htmlFor="password" className="label">Password</label>
+          <PasswordField id="password" name="password" label="Password" minLength={8} autoComplete="new-password" placeholder="At least 8 characters" />
+        </div>
+        {role === "VENDOR" && (
+          <div>
+            <label htmlFor="shopName" className="label">Shop name</label>
+            <input id="shopName" name="shopName" required minLength={2} className="field" />
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="rounded-lg border border-[var(--danger)] bg-[var(--surface-1)] px-4 py-3 text-sm font-medium text-[var(--danger)]">
+            {error}
+          </p>
+        )}
+        <button disabled={loading} className="btn btn-primary w-full py-3">
+          {loading ? "Working..." : "Create account"}
+        </button>
+      </form>
+    </AuthShell>
   );
 }
