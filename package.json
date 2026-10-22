@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "prisma generate",
     "seed": "tsx scripts/seed-catalog.ts",
     "import:csv": "tsx scripts/import-csv.ts",
     "service:api": "tsx services/api/src/server.ts",
