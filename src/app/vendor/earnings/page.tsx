@@ -65,7 +65,7 @@ export default async function VendorEarningsPage() {
     <section className="panel mt-6 space-y-4 p-5" aria-labelledby="earnings-split-heading">
       <h2 id="earnings-split-heading" className="font-semibold">Your lifetime split</h2>
       <SplitBar vendor={earningsPaise} platform={commissionPaise} label="Lifetime sales split" />
-      <div className="flex flex-wrap justify-between gap-3 text-sm text-[var(--muted)]"><span>Seller earnings {formatPrice(earningsPaise / 100)}</span><span>Platform commission {formatPrice(commissionPaise / 100)}</span></div>
+      <div className="flex flex-wrap justify-between gap-3 text-sm text-[var(--muted)]"><span className="font-semibold text-[color:var(--lime)]">Seller earnings {formatPrice(earningsPaise / 100)}</span><span className="font-semibold text-[color:var(--magenta)]">Platform commission {formatPrice(commissionPaise / 100)}</span></div>
     </section>
   </>;
 }

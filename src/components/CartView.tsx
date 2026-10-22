@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { clearCart, removeItem, setQty, useCart } from "@/lib/cart";
@@ -67,7 +67,7 @@ export default function CartView() {
         <div className="mt-5 rounded-[10px] border border-[var(--line)] p-4">
           <h3 className="mb-3 text-sm font-semibold">Where your money goes</h3>
           <SplitBar vendor={total * 0.9} platform={total * 0.1} />
-          <p className="mt-3 text-xs text-[var(--muted)]">Estimated split at the 10% commission rate.</p>
+          <p className="mt-3 text-xs text-[var(--muted)]">Estimated split at the current commission rate. The final split is confirmed at checkout.</p>
         </div>
         <div className="mt-3 flex justify-between border-t border-[var(--line)] pt-4 text-lg font-extrabold">
           <span>Total</span>

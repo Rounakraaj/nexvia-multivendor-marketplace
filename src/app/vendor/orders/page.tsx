@@ -29,7 +29,7 @@ export default async function VendorOrdersPage() {
           const canShip = (order.status === "PAID" || order.status === "PACKED") && order._count.items === order.items.length;
           return <tr key={item.id}>
             <td className="font-semibold">{item.product.title}</td><td>{item.qty}</td><td>{order.customer.name.split(/\s+/)[0]}</td>
-            <td className="nums">{formatPrice(Number(item.price) * item.qty)}</td><td className="nums">{formatPrice(Number(item.commission))}</td><td className="nums">{formatPrice(Number(item.vendorEarning))}</td>
+            <td className="nums">{formatPrice(Number(item.price) * item.qty)}</td><td className="nums text-[color:var(--magenta)]">{formatPrice(Number(item.commission))}</td><td className="nums font-semibold text-[color:var(--lime)]">{formatPrice(Number(item.vendorEarning))}</td>
             <td><span className={`badge ${badgeClass[order.status]}`}>{order.status.toLowerCase()}</span></td><td>{order.createdAt.toLocaleDateString("en-IN")}</td>
             <td>{index === 0 && canShip ? <VendorOrderShipForm orderId={order.id} status={order.status as "PAID" | "PACKED"} /> : index === 0 && (order.status === "PAID" || order.status === "PACKED") ? <span className="text-xs text-[var(--muted)]">Other shops have items</span> : ""}{index === 0 && <details className="mt-2"><summary className="tap-target cursor-pointer text-xs">Timeline</summary><div className="min-w-52 py-2"><OrderTimeline events={order.statusHistory} /></div></details>}</td>
           </tr>;
