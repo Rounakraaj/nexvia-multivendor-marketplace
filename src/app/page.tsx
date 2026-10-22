@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { z } from "zod";
 import { getProductCategories } from "@/lib/catalog";
 import { formatPrice } from "@/lib/format";
@@ -58,7 +58,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
     <section className="border-b border-[var(--line)]">
       <div className="mx-auto max-w-4xl px-5 py-16 text-center sm:py-24">
         <p className="mb-4 text-sm text-[var(--muted)]">Independent sellers. Clear prices.</p>
-        <h1 className="text-4xl font-extrabold leading-tight tracking-[-0.03em] sm:text-6xl">Find what you need.</h1>
+        <h1 className="text-4xl font-extrabold leading-tight tracking-[-0.03em] sm:text-6xl">Find what you need<span className="text-[#FF2E93]">.</span></h1>
         <p className="mx-auto mt-3 max-w-md text-[var(--muted)]">Search products from independent sellers.</p>
         <form action="/" className="relative mx-auto mt-8 flex w-full max-w-2xl">
           {category && <input type="hidden" name="category" value={category} />}
@@ -75,7 +75,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
     </section>
     {searching && <main className="mx-auto min-h-[40vh] max-w-4xl px-5 py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-[var(--muted)]"><span className="font-semibold text-[var(--text)]">{total} {total === 1 ? "result" : "results"}</span>{q ? ` for “${q}”` : ""}{category ? ` in ${category}` : ""}</p>
+        <p className="text-sm text-[var(--muted)]"><span className="font-semibold text-[var(--text)]">{total} {total === 1 ? "result" : "results"}</span>{q ? ` for â€œ${q}â€` : ""}{category ? ` in ${category}` : ""}</p>
         {total > 1 && <nav aria-label="Sort products" className="flex flex-wrap rounded-[10px] border border-[var(--line)] p-1">{sorts.map(([value, label]) => <Link key={value} href={href({ ...baseParams, sort: value })} aria-current={sort === value ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-xs sm:text-sm ${sort === value ? "bg-[var(--surface-2)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>{label}</Link>)}</nav>}
       </div>
       {results?.source === "postgres" && process.env.ELASTICSEARCH_URL && <p className="mt-3 text-xs text-[var(--muted)]">Enhanced search is temporarily unavailable. Showing standard search results.</p>}
@@ -93,3 +93,4 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
     <SiteFooter />
   </>;
 }
+

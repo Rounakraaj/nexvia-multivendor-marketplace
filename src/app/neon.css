@@ -1,0 +1,93 @@
+﻿:root {
+  --pink: #ff2e93;
+  --pink-soft: rgba(255, 46, 147, 0.16);
+  --lime: #c8ff1f;
+  --lime-soft: rgba(200, 255, 31, 0.1);
+}
+
+::selection {
+  background: var(--pink);
+  color: #000;
+}
+
+html {
+  scrollbar-color: #2a2a2a #000;
+  scrollbar-width: thin;
+}
+
+body {
+  background-color: #000;
+}
+
+/* Page wrappers must not hide the ambient light */
+.min-h-screen {
+  background-color: transparent;
+}
+
+/* Ambient light behind every page */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 88% -8%, var(--pink-soft), transparent 70%),
+    radial-gradient(800px 520px at 4% 108%, var(--lime-soft), transparent 70%);
+}
+
+/* Dot grid that fades away from the top */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1.2px) 0 0 / 26px 26px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 18%, #000, transparent 80%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 18%, #000, transparent 80%);
+}
+
+/* The signature split: 90 percent seller, 10 percent platform */
+header,
+footer {
+  border-image: linear-gradient(90deg, var(--lime) 0 90%, var(--pink) 90% 100%) 1;
+}
+header {
+  border-bottom-width: 2px;
+}
+footer {
+  border-top-width: 2px;
+}
+
+/* Dashboard sidebar: vertical on desktop, horizontal on mobile */
+aside {
+  border-image: linear-gradient(90deg, var(--lime) 0 90%, var(--pink) 90% 100%) 1;
+  border-bottom-width: 2px;
+}
+@media (min-width: 1024px) {
+  aside {
+    border-bottom-width: 0;
+    border-right-width: 2px;
+    border-image: linear-gradient(180deg, var(--lime) 0 90%, var(--pink) 90% 100%) 1;
+  }
+}
+
+/* Pink focus on every field keeps lime for actions */
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px var(--pink-soft), 0 0 22px rgba(255, 46, 147, 0.22);
+}
+
+/* Category chips and pill links */
+a[class*="rounded-full"]:hover {
+  border-color: var(--pink);
+}
+
+/* Table rows */
+table tbody tr:hover {
+  background-color: rgba(255, 46, 147, 0.06);
+}
