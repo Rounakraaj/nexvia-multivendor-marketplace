@@ -14,7 +14,7 @@ export async function getMongoCollection<T extends Document>(name: string): Prom
   if (Date.now() < mongoUnavailableUntil) return null;
 
   try {
-    globalThis.mongoClientPromise ??= new MongoClient(uri, { serverSelectionTimeoutMS: 500 }).connect();
+    globalThis.mongoClientPromise ??= new MongoClient(uri, { serverSelectionTimeoutMS: 10000, connectTimeoutMS: 10000 }).connect();
     const client = await globalThis.mongoClientPromise;
     const collection = client.db(process.env.MONGODB_DATABASE || "nexvia").collection<T>(name);
     if (!readyIndexes.has(name)) {
