@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
+import { getSession } from "@/lib/session";
 import { authOptions } from "@/lib/auth";
 import SignOutButton from "@/components/SignOutButton";
 import CartLink from "@/components/CartLink";
 import SearchForm from "@/components/SearchForm";
 
 export default async function SiteHeader({ showSearch = true }: { showSearch?: boolean }) {
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-black">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3">

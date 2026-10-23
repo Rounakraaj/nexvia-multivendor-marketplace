@@ -8,6 +8,17 @@ import { z } from "zod";
 const credentialSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(8).max(128) });
 
 export const authOptions: NextAuthOptions = {
+  logger: {
+    error(code, metadata) {
+      // A cookie signed with an old NEXTAUTH_SECRET is expected after rotating it.
+      // The visitor is treated as signed out, so a quiet warning is enough.
+      if (code === "JWT_SESSION_ERROR") {
+        console.warn("Ignored a session cookie that could not be decrypted. Sign in again.");
+        return;
+      }
+      console.error(code, metadata);
+    },
+  },
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [

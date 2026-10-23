@@ -1,11 +1,10 @@
-﻿import CursorGlow from "@/components/CursorGlow";
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import { Sora } from "next/font/google";
 import { connection } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { CartProvider } from "@/lib/cart";
 import ToastProvider from "@/components/ToastProvider";
+import CursorGlow from "@/components/CursorGlow";
 import "./globals.css";
 import "./neon.css";
 
@@ -22,12 +21,24 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   await connection();
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   const cartUserId = session?.user.role === "CUSTOMER" ? session.user.id : null;
+
   return (
-    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning className={`${sora.variable} h-full antialiased`}>
-      <body className="min-h-full"><ToastProvider><CartProvider userId={cartUserId}>{children}<CursorGlow /></CartProvider></ToastProvider></body>
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+      className={`${sora.variable} h-full antialiased`}
+    >
+      <body className="min-h-full">
+        <ToastProvider>
+          <CartProvider userId={cartUserId}>
+            {children}
+            <CursorGlow />
+          </CartProvider>
+        </ToastProvider>
+      </body>
     </html>
   );
 }
-
