@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef } from "react";
 
@@ -40,7 +40,7 @@ export default function CursorGlow() {
         borderRadius: "50%",
         pointerEvents: "none",
         zIndex: -1,
-        background: "radial-gradient(circle, rgba(255,46,147,0.10), transparent 65%)",
+        background: "radial-gradient(circle, rgba(214,47,46,0.12), transparent 65%)",
       }}
     />
   );

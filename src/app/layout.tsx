@@ -1,5 +1,5 @@
-﻿import type { Metadata } from "next";
-import { Sora } from "next/font/google";
+import type { Metadata } from "next";
+import { Sora, Playfair_Display } from "next/font/google";
 import { connection } from "next/server";
 import { getSession } from "@/lib/session";
 import { CartProvider } from "@/lib/cart";
@@ -7,10 +7,17 @@ import ToastProvider from "@/components/ToastProvider";
 import CursorGlow from "@/components/CursorGlow";
 import "./globals.css";
 import "./neon.css";
+import "./theme.css";
 
 const sora = Sora({
   subsets: ["latin"],
   variable: "--font-sans",
+  display: "swap",
+});
+
+const display = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-display",
   display: "swap",
 });
 
@@ -29,7 +36,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       lang="en"
       data-scroll-behavior="smooth"
       suppressHydrationWarning
-      className={`${sora.variable} h-full antialiased`}
+      className={`${sora.variable} ${display.variable} h-full antialiased`}
     >
       <body className="min-h-full">
         <ToastProvider>
