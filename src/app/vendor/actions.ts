@@ -12,6 +12,13 @@ import { recordActivity } from "@/lib/mongo";
 const orderStatusSchema = z.object({ orderId: z.string().min(1).max(40), status: z.enum(["PACKED", "SHIPPED"]) });
 export type ShipmentState = { error?: string; success?: string };
 
+const vendorProfileSchema = z.object({
+  tagline: z.string().trim().max(80).optional().transform((value) => value ? value : null),
+  bio: z.string().trim().max(240).optional().transform((value) => value ? value : null),
+  brandHero: z.string().trim().min(2).max(100).optional().transform((value) => value ? value : null),
+  accentColor: z.string().trim().regex(/^#[0-9A-Fa-f]{6}$/).optional().transform((value) => value ? value : null),
+});
+
 const productSchema = z.object({
   title: z.string().trim().min(2),
   description: z.string().optional(),
@@ -80,6 +87,31 @@ export async function deleteProduct(formData: FormData) {
   await recordActivity({ actorId: vendor.userId, actorRole: "VENDOR", action: "product.deleted", targetType: "product", targetId: product.id, createdAt: new Date() });
   await removeImageBestEffort(product.image);
   revalidatePath("/vendor/products");
+}
+
+export async function updateVendorProfile(formData: FormData) {
+  const vendor = await requireApprovedVendor();
+  const parsed = vendorProfileSchema.safeParse({
+    tagline: formData.get("tagline"),
+    bio: formData.get("bio"),
+    brandHero: formData.get("brandHero"),
+    accentColor: formData.get("accentColor"),
+  });
+  if (!parsed.success) throw new Error("Update failed. Check the storefront fields and try again.");
+
+  await db.vendor.update({
+    where: { id: vendor.id },
+    data: {
+      tagline: parsed.data.tagline,
+      bio: parsed.data.bio,
+      brandHero: parsed.data.brandHero,
+      accentColor: parsed.data.accentColor,
+    },
+  });
+
+  revalidatePath("/vendor");
+  revalidatePath("/");
+  redirect("/vendor");
 }
 
 export async function advanceVendorOrder(_previous: ShipmentState, formData: FormData): Promise<ShipmentState> {

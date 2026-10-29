@@ -53,6 +53,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
 
   const baseParams: SP = { q, category, minPrice: sp.minPrice, maxPrice: sp.maxPrice, ...(inStock ? { inStock: "1" } : {}) };
   const chip = (active: boolean) => `inline-flex min-h-11 items-center rounded-full border px-4 py-2 text-sm font-medium ${active ? "border-[var(--lime)] bg-[var(--lime)] text-black" : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--text)] hover:text-[var(--text)]"}`;
+  const assistantPrompts = [
+    { label: "Home essentials", query: "home essentials" },
+    { label: "Best under ₹2,000", query: "affordable daily essentials" },
+    { label: "Top-rated picks", query: "best rated" },
+    { label: "Tech & gadgets", query: "electronics gadgets" },
+  ];
   return <>
     <SiteHeader />
     <section className="border-b border-[var(--line)]">
@@ -70,12 +76,30 @@ export default async function Home({ searchParams }: { searchParams: Promise<SP>
           <Link href={href({ ...baseParams, q, category: undefined })} className={chip(!category)}>All categories</Link>
           {categories.map((item) => <Link key={item} href={href({ ...baseParams, q, category: item })} className={chip(category === item)}>{item}</Link>)}
         </div>
+        {!searching && <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-5 text-left">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">AI shopping assistant</p>
+              <h2 className="mt-1 text-lg font-bold">Tell us what you need</h2>
+            </div>
+            <span className="badge badge-ok">Smart suggestions</span>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {assistantPrompts.map((prompt) => (
+              <Link key={prompt.label} href={href({ ...baseParams, q: prompt.query })} className="rounded-full border border-[var(--line)] px-3 py-2 text-sm text-[var(--muted)] transition hover:border-[var(--text)] hover:text-[var(--text)]">{prompt.label}</Link>
+            ))}
+          </div>
+          <form action="/" className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <input name="q" type="search" placeholder="Describe the product you want" defaultValue={q} className="field flex-1" />
+            <button className="btn btn-primary">Ask assistant</button>
+          </form>
+        </div>}
         {!searching && <p className="mt-8 text-sm text-[var(--muted)]">Results appear after a search or category pick.</p>}
       </div>
     </section>
     {searching && <main className="mx-auto min-h-[40vh] max-w-4xl px-5 py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-[var(--muted)]"><span className="font-semibold text-[var(--text)]">{total} {total === 1 ? "result" : "results"}</span>{q ? ` for â€œ${q}â€` : ""}{category ? ` in ${category}` : ""}</p>
+        <p className="text-sm text-[var(--muted)]"><span className="font-semibold text-[var(--text)]">{total} {total === 1 ? "result" : "results"}</span>{q ? ` for “${q}”` : ""}{category ? ` in ${category}` : ""}</p>
         {total > 1 && <nav aria-label="Sort products" className="flex flex-wrap rounded-[10px] border border-[var(--line)] p-1">{sorts.map(([value, label]) => <Link key={value} href={href({ ...baseParams, sort: value })} aria-current={sort === value ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-xs sm:text-sm ${sort === value ? "bg-[var(--surface-2)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>{label}</Link>)}</nav>}
       </div>
       {results?.source === "postgres" && process.env.ELASTICSEARCH_URL && <p className="mt-3 text-xs text-[var(--muted)]">Enhanced search is temporarily unavailable. Showing standard search results.</p>}

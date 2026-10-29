@@ -23,6 +23,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const earnings = order.items.reduce((sum, item) => sum + toPaise(item.vendorEarning.toString()), 0);
   const vendorDiscount = order.items.reduce((sum, item) => sum + toPaise(item.vendorDiscount.toString()), 0);
   const platformDiscount = Math.max(0, toPaise(order.discountTotal.toString()) - vendorDiscount);
+  const statusFlow = ["PENDING", "PAID", "PACKED", "SHIPPED", "DELIVERED"] as const;
+  const currentIndex = statusFlow.indexOf(order.status as typeof statusFlow[number]);
+  const progress = currentIndex >= 0 ? (currentIndex / (statusFlow.length - 1)) * 100 : 0;
   return <>
     <SiteHeader />
     <main className="mx-auto min-h-[60vh] max-w-3xl px-5 py-10">
@@ -31,6 +34,30 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <div><h1 className="text-3xl font-extrabold">Order details</h1><p className="mt-2 text-sm text-[var(--muted)]">Placed {order.createdAt.toLocaleString("en-IN")}</p></div>
         <span className={`badge ${badgeClass[order.status]}`}>{order.status.toLowerCase()}</span>
       </div>
+      <section className="panel mt-6 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Live tracking</p>
+            <h2 className="mt-1 text-xl font-bold">Order status</h2>
+          </div>
+          <span className={`badge ${badgeClass[order.status]}`}>{order.status.toLowerCase()}</span>
+        </div>
+        <div className="mt-4 overflow-hidden rounded-full bg-[var(--surface-2)]">
+          <div className="h-2 rounded-full bg-[var(--lime)] transition-all" style={{ width: `${progress}%` }} />
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-5">
+          {statusFlow.map((step, index) => (
+            <div key={step} className={`rounded-xl border px-2 py-2 text-center text-xs ${index <= currentIndex ? "border-[var(--lime)] bg-[var(--lime)]/10 text-[var(--text)]" : "border-[var(--line)] text-[var(--muted)]"}`}>
+              {step}
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--muted)]">
+          <span className="badge badge-ok">Verified seller</span>
+          <span className="badge badge-ok">Secure checkout</span>
+          <span className="badge badge-warn">Tracking live</span>
+        </div>
+      </section>
       <ul className="panel mt-6 divide-y divide-[var(--line)]">
         {order.items.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div><p className="font-semibold">{item.product.title}</p><p className="text-sm text-[var(--muted)]">{item.vendor.shopName} · {item.qty} × {formatPrice(Number(item.price))}</p></div>

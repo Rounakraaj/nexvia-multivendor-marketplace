@@ -16,7 +16,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const p = await db.product.findFirst({
     where: { id, vendor: { approved: true } },
-    include: { vendor: { select: { id: true, shopName: true } } },
+    include: { vendor: { select: { id: true, shopName: true, tagline: true, bio: true, accentColor: true, brandHero: true } } },
   });
   if (!p) notFound();
   const session = await getServerSession(authOptions);
@@ -39,8 +39,18 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         {p.image?.startsWith("products/") && <div className="relative mt-6 aspect-[4/3] overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-2)]">
           <Image src={`/api/product-images?key=${encodeURIComponent(p.image)}`} alt={p.title} fill unoptimized priority className="object-cover" sizes="(max-width: 672px) 100vw, 672px" />
         </div>}
-        <p className="mt-8 text-sm text-[var(--muted)]">Sold by {p.vendor.shopName}</p>
-        <h1 className="mt-1 text-4xl font-extrabold leading-tight">{p.title}</h1>
+        <div className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-4" style={{ borderColor: p.vendor.accentColor ?? "#FF2E93" }}>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Trusted seller</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-[var(--text)]">{p.vendor.shopName}</p>
+              <p className="text-sm text-[var(--muted)]">{p.vendor.tagline ?? p.vendor.brandHero ?? "Handpicked essentials for everyday life."}</p>
+            </div>
+            <span className="badge badge-ok">Verified</span>
+          </div>
+          {p.vendor.bio && <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]">{p.vendor.bio}</p>}
+        </div>
+        <h1 className="mt-6 text-4xl font-extrabold leading-tight">{p.title}</h1>
         <p className="nums mt-5 text-3xl font-extrabold">{formatPrice(Number(p.price))}</p>
         <p className="mt-2 text-sm" aria-label={`${p.averageRating.toFixed(1)} out of 5 from ${p.ratingCount} reviews`}><span className="text-amber-500">{p.ratingCount ? "★".repeat(Math.round(p.averageRating)) : "☆☆☆☆☆"}</span><span className="ml-2 text-[var(--muted)]">{p.averageRating.toFixed(1)} · {p.ratingCount} {p.ratingCount === 1 ? "review" : "reviews"}</span></p>
         <p className="mt-3">

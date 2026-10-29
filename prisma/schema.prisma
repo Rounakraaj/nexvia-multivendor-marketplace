@@ -55,12 +55,16 @@ model User {
 }
 
 model Vendor {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  shopName  String
-  approved  Boolean  @default(false)
-  balance   Decimal  @default(0) @db.Decimal(10, 2)
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  shopName    String
+  tagline     String?
+  bio         String?
+  brandHero   String?  @default("Curated finds for everyday life")
+  accentColor String?  @default("#FF2E93")
+  approved    Boolean  @default(false)
+  balance     Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
 
   user       User        @relation(fields: [userId], references: [id])
   products   Product[]

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getSession } from "@/lib/session";
-import { authOptions } from "@/lib/auth";
 import SignOutButton from "@/components/SignOutButton";
 import CartLink from "@/components/CartLink";
 import SearchForm from "@/components/SearchForm";
